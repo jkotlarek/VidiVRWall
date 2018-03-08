@@ -1,21 +1,3 @@
-<!DOCTYPE html>
-<meta charset="utf-8">
-<style>
-
-.links line {
-  stroke: #999;
-  stroke-opacity: 0.6;
-}
-
-.nodes circle {
-  stroke: #fff;
-  stroke-width: 1.5px;
-}
-
-</style>
-<svg width="960" height="600"></svg>
-<script src="https://d3js.org/d3.v4.min.js"></script>
-<script>
 
 var svg = d3.select("svg"),
     width = +svg.attr("width"),
@@ -28,7 +10,7 @@ var simulation = d3.forceSimulation()
     .force("charge", d3.forceManyBody())
     .force("center", d3.forceCenter(width / 2, height / 2));
 
-d3.json("miserables.json", function(error, graph) {
+d3.json("../data/miserables.json", function(error, graph) {
   if (error) throw error;
 
   var link = svg.append("g")
@@ -89,5 +71,3 @@ function dragended(d) {
   d.fx = null;
   d.fy = null;
 }
-
-</script>

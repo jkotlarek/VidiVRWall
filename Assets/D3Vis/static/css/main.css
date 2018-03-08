@@ -1,0 +1,86 @@
+/*
+	Top bar formatting
+*/
+html {
+	background-color:  #000;	
+}
+
+text.footnote {
+	cursor: initial;
+	font-style: italic;
+	fill: #bbe4f1;
+	text-anchor: middle;
+}
+
+
+div#main {
+	background-repeat: no-repeat;
+	background-position: center;
+	background-size: cover;
+}
+
+body {
+	background-color: #000;	
+}
+
+div {
+	background-color:  #000;
+}
+
+header	{
+	text-align: center;
+	background-color: #444;
+	color: #ccc;	
+	width:100%;
+	height: 50px;
+	z-index: 1;
+}
+
+header span.title {	
+	color: #5ACEED;
+	font-size: 22px;
+	font-family: Chalkduster, fantasy;
+}
+
+header span.sub-title {
+	font-size: 16px;
+	font-family: Luminari, fantasy;
+}
+
+.row {
+	min-height: 350px;
+}
+
+div.main {
+	width: 100%;
+}
+
+h4 {
+	font-family: Luminari, fantasy;	
+	color: white;
+	text-decoration: underline;
+	text-shadow: 0 4px 12px #ff8d00de;
+}
+
+small.caption {
+	font-family: Luminari, fantasy;
+	font-size: 10px;
+	color: #b9bcbd;
+}
+
+div.footer {
+	/*background-color: #444;*/
+	color: #ccc;
+	font-size: 12px;
+	font-style: italic;
+	/*height: 100px;*/
+}
+
+div.footer p {
+	line-height: 9px;
+}
+
+div.footer a,
+header a {
+	color: #5ACEED;
+}
