@@ -32,7 +32,11 @@ public class BrowserInputSettings {
 
 }
 
-/** Proxy for browser input (and current mouse cursor). */
+/** 
+ * Proxy for browser input (and current mouse cursor). 
+ * You can create your own implementation to take input however you'd like. To use your implementation, 
+ * create a new instance and assign it to browser.UIHandler just after creating the browser.
+ */
 public interface IBrowserUI {
 
 	/** Called once per frame by the browser before fetching properties. */
@@ -59,9 +63,7 @@ public interface IBrowserUI {
 	/**
 	 * Delta X and Y scroll values since the last time InputUpdate() was called.
 	 * 
-	 * Return 1 for every "click" of the scroll wheel.
-	 * 
-	 * Return only integers.
+	 * Return 1 for every "click" of the scroll wheel, or smaller numbers for more incremental scrolling.
 	 */
 	Vector2 MouseScroll { get; }
 

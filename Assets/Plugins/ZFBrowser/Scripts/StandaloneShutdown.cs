@@ -1,10 +1,11 @@
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace ZenFulcrum.EmbeddedBrowser {
+
 /** 
- * Hooks to ensure that zfb gets shut down on standalone app exit. 
- * (Which are different from when we'd want to shut down in the editor.)
+ * Hooks to ensure that zfb gets shut down on app (or playmode) exit. 
+ * (This used to be used only for builds, but now that we can cleanly shut down the browser 
+ * system after every playmode run it's used in the Editor too.)
  */
 class StandaloneShutdown : MonoBehaviour {
 	public static void Create() {
@@ -17,4 +18,5 @@ class StandaloneShutdown : MonoBehaviour {
 		BrowserNative.UnloadNative();
 	}
 }
+
 }

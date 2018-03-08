@@ -106,6 +106,21 @@ static class KeyMappings {
 		{KeyCode.KeypadPeriod, 110},
 	};
 
+	private static Dictionary<int, KeyCode> reverseMappings = new Dictionary<int, KeyCode>();
+
+	static KeyMappings() {
+		foreach (var kvp in mappings) {
+			reverseMappings[kvp.Value] = kvp.Key;
+		}
+
+		for (int i = (int)KeyCode.A; i <= (int)KeyCode.Z; i++) {
+			var key = (KeyCode)i;
+			var keyCode = i - (int)KeyCode.A + 65;
+			mappings[key] = keyCode;
+			reverseMappings[keyCode] = key;
+		}
+	}
+
 	public static int GetWindowsKeyCode(Event ev) {
 		int ukc = (int)ev.keyCode;//unity key code
 
@@ -117,10 +132,9 @@ static class KeyMappings {
 			return ev.character;
 		}
 
-
-		if (ukc >= (int)KeyCode.A && ukc <= (int)KeyCode.Z) {
-			return ukc - (int)KeyCode.A + 65;
-		}
+//		if (ukc >= (int)KeyCode.A && ukc <= (int)KeyCode.Z) {
+//			return ukc - (int)KeyCode.A + 65;
+//		}
 
 		int ret;
 		if (mappings.TryGetValue(ev.keyCode, out ret)) {
@@ -131,6 +145,12 @@ static class KeyMappings {
 		//Don't recognize it, we'll just have to return something, but it's almost sure to be wrong.
 		Debug.LogWarning("Unknown key mapping: " + ev);
 		return ukc;
+	}
+
+	public static KeyCode GetUnityKeyCode(int windowsKeyCode) {
+		KeyCode ret;
+		if (reverseMappings.TryGetValue(windowsKeyCode, out ret)) return ret;
+		return 0;
 	}
 }
 }

@@ -43,7 +43,7 @@ public class UserAgent {
 
 		var userAgent =
 			"Mozilla/5.0 " +
-			"(" + osStr + "; Unity 3D; ZFBrowser 1.1.0; " + Application.productName + " " + Application.version + ") " +
+			"(" + osStr + "; Unity 3D; ZFBrowser 2.0.0; " + Application.productName + " " + Application.version + ") " +
 			"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + chromeVersion + " Safari/537.36"
 		;
 

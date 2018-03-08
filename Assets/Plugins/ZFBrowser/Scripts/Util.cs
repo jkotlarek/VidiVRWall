@@ -1,4 +1,6 @@
 using System;
+using System.Runtime.InteropServices;
+using System.Text;
 
 namespace ZenFulcrum.EmbeddedBrowser {
 
@@ -21,11 +23,41 @@ public static class Util {
 
 		return true;
 	}
+
+	/// <summary>
+	/// Converts a UTF8-encoded null-terminated string to a CLR string.
+	/// </summary>
+	/// <param name="strIn"></param>
+	/// <returns></returns>
+	public static string PtrToStringUTF8(IntPtr strIn) {
+		if (strIn == IntPtr.Zero) return null;
+		int strLen = 0;
+		while (Marshal.ReadByte(strIn, strLen) != 0) ++strLen;
+		var buffer = new byte[strLen];
+		Marshal.Copy(strIn, buffer, 0, strLen);
+		return Encoding.UTF8.GetString(buffer);
+	}
 }
 
 public class JSException : Exception {
 	public JSException(string what) : base(what) {}
 }
 
+public enum KeyAction {
+	Press, Release, PressAndRelease
+}
+
+public class BrowserFocusState {
+	public bool hasKeyboardFocus;
+	public bool hasMouseFocus;
+
+	public string focusedTagName;
+	public bool focusedNodeEditable;
+}
+
+public class BrowserNavState {
+	public bool canGoForward, canGoBack, loading;
+	public string url = "";
+}
 
 }

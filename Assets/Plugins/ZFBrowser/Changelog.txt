@@ -1,5 +1,100 @@
 (Version numbers: http://semver.org/)
 
+2.0.0:
+Changes:
+  - Updated to Chromium 64.0.3282.119 / CEF 3.3282.1741.gcd94615 for
+    Windows and OS X
+  - API proxy (Chromium out-of-process) is used by everywhere now.
+    Pros:
+      - C# debugging should work out-of-the box, instead of
+        crashing/hanging.
+      - The inspector is much more stable.
+      - The Unity Editor won't hang if you use the new Mono (.NET 4.6)
+        backend.
+      - (Windows) Standalone builds made with newer Unity and CEF
+        versions won't crash on exit.
+      - (OS X) Fixes all sorts of crashing in builds.
+      - (Windows) Since the browser no longer executes directly from the
+        Player executable, many files can and have been moved from the build
+        root to inside [game]_Data/Plugins.
+      - Probably a number of other little things.
+    Cons:
+      - It's a lot more work to make, but that's not your problem. ;-)
+      - It's slower, but a lot of effort has gone into improving its
+        performance; hopefully everything will run just awesome now. :-)
+      - Using pop-up windows that open in an OS-native window outside the
+        game may have unexpected or incomplete behavior.
+        Using these outside testing/debugging is not recommended or
+        officially supported.
+  - Adjust popup window behavior via SetNewWindowHandler instead of
+    newWindowAction/NewWindowHandler.
+  - Cleaned up some demo scripts being in their own folder and/or not
+    being in the right namespace.
+  - The WebResources API has changed. It's now asynchronous and more
+    powerful! Unfortunately, it is different, so if you extended
+    WebResources you'll need to make some changes.
+    Also, the generated errors are slightly different.
+  - browser.backgroundColor was renamed to baseColor and the initial
+    texture gets this color.
+  - "--zf-browser-log-verbose" was renamed to "--zf-log-cef-verbose"
+    (and "--zf-log-internal" was added)
+  - Require Unity 5.6.3+ out of the box. (Older versions may still work
+    with minor tweaks.)
+
+Features:
+  - Added first-class VR input support (requires Unity 2017.2 or newer)
+  - Added soft keyboard for use inside (or outside) VR
+  - Added browser.onTextureUpdated
+  - Added browser.onNavStateChange
+  - Added new input system that combines clicks, touches, and spacial
+    interactions. (Still built on IBrowserUI.) The old input classes are
+    still included, but deprecated.
+    - While we can still only convert a single touch to the browser's
+      mouse, the new input handlers should do a much better job of it.
+  - Added new unlit colored emulate mipmap shader. Use it to apply a
+    tint/color the the browser image. (As always, you can write you own
+    shader too!)
+  - Added support for --key=value style command-line arguments. (For
+    example, set a proxy manually with --proxy-server=10.1.2.3:8080)
+  - Save user data between application runs by setting
+    BrowserNative.ProfilePath (or leave it blank to keep forgetting
+    everything on restart).
+  - Throw a BrowserSystemSettings into your scene to automatically
+    change/call BrowserNative.ProfilePath or UserAgent.SetUserAgent, no
+    coding required.
+  - Added checkbox to disable GUIBrowserUI auto-resizing.
+  - Added support for HTTP user/password prompts.
+  - Added support for file downloads & relevant API.
+  - IBrowserUI.MouseScroll is no longer truncated to the nearest integer,
+    allowing finer scroll inputs. (Also scroll events are throttled and
+    grouped, so feel free to send lots of small scroll events.)
+  - Frame data uploads faster via texture.LoadRawTextureData now and with
+    fewer intermediate copies. (Also, see notes about framerates in the
+    docs.)
+  - Added Assembly Definition files (for newer versions of Unity).
+  - Automatically copy ThirdPartyNotices.txt to build.
+
+Fixes:
+  - Properly release alt (and other modifiers) when you alt-tab out.
+    (Fixes things like backspace and arrow keys not working after an
+    alt-tab.)
+  - Fix an issue with zfb_tick getting called before the symbol loaded.
+  - Calling browser.CallFunction with a null argument passes it along
+    correctly instead of breaking.
+  - Fix GUI browser not working correctly with a non-center pivot.
+    (Thanks to those that pointed this out!)
+  - Docs fixes
+  - Under Windows the browser backend is now fully torn down between
+    runs, more correctly emulating how profile data is (or isn't)
+    persisted.
+  - New Unity version fixes.
+
+1.1.1:
+Changes:
+  - The Unity 4.x FPS controller isn't included with the demo anymore.
+    The demo now uses a simple replacement controller. (Not a public API
+    change, affects demo and demo scripts only.)
+
 1.1.0:
 Features:
   - You can now adjust or add Chromium switches with
@@ -23,7 +118,7 @@ Fixes:
   - Fix issues with GUIBrowserUI + touchscreen + build.
   - Unity 5.4: Don't spam errors about cursor formats.
   - Unity 5.5: Cope with Profiler namespace change.
-	- localGame:// will strip query strings/hashes and try to find the
+  - localGame:// will strip query strings/hashes and try to find the
     underlying file instead of always failing when one is present.
 
 1.0.2:

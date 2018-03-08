@@ -25,11 +25,20 @@ internal class BrowserInput {
 
 	public void HandleInput() {
 		browser.UIHandler.InputUpdate();
+		bool focusChanged = false;
 
 		if (browser.UIHandler.MouseHasFocus || mouseWasFocused) {
 			HandleMouseInput();
 		}
+		if (browser.UIHandler.MouseHasFocus != mouseWasFocused) {
+			browser.UIHandler.BrowserCursor.HasMouse = browser.UIHandler.MouseHasFocus;
+			focusChanged = true;
+		}
 		mouseWasFocused = browser.UIHandler.MouseHasFocus;
+
+
+
+		if (kbWasFocused != browser.UIHandler.KeyboardHasFocus) focusChanged = true;
 
 		if (browser.UIHandler.KeyboardHasFocus) {
 			if (!kbWasFocused) {
@@ -41,7 +50,14 @@ internal class BrowserInput {
 				BrowserNative.zfb_setFocused(browser.browserId, kbWasFocused = false);
 			}
 		}
+
+		if (focusChanged) {
+			browser._RaiseFocusEvent(browser.UIHandler.MouseHasFocus, browser.UIHandler.KeyboardHasFocus);
+		}
 	}
+
+	private static HashSet<KeyCode> keysToReleaseOnFocusLoss = new HashSet<KeyCode>();
+	public List<Event> extraEventsToInject = new List<Event>();
 
 	private MouseButton prevButtons = 0;
 	private Vector2 prevPos;
@@ -81,20 +97,14 @@ internal class BrowserInput {
 		var handler = browser.UIHandler;
 		var mousePos = handler.MousePosition;
 
-		// ReSharper disable CompareOfFloatsByEqualityOperator
 		var currentButtons = handler.MouseButtons;
 		var mouseScroll = handler.MouseScroll;
 
 		if (mousePos != prevPos) {
 			BrowserNative.zfb_mouseMove(browser.browserId, mousePos.x, 1 - mousePos.y);
 		}
-		if (mouseScroll.sqrMagnitude != 0) {
-			BrowserNative.zfb_mouseScroll(
-				browser.browserId,
-				(int)mouseScroll.x * handler.InputSettings.scrollSpeed, (int)mouseScroll.y * handler.InputSettings.scrollSpeed
-			);
-		}
-		// ReSharper restore CompareOfFloatsByEqualityOperator
+
+		FeedScrolling(mouseScroll, handler.InputSettings.scrollSpeed);
 
 		var leftChange = (prevButtons & MouseButton.Left) != (currentButtons & MouseButton.Left);
 		var leftDown = (currentButtons & MouseButton.Left) == MouseButton.Left;
@@ -127,9 +137,55 @@ internal class BrowserInput {
 		prevButtons = currentButtons;
 	}
 
+	private Vector2 accumulatedScroll;
+	private float lastScrollEvent;
+	/// <summary>
+	/// How often (in sec) we can send scroll events to the browser without it choking up.
+	/// The right number seems to depend on how hard the page is to render, so there's not a perfect number.
+	/// Hopefully this one works well, though. 
+	/// </summary>
+	private const float maxScrollEventRate = 1 / 15f;
+
+	/// <summary>
+	/// Feeds scroll events to the browser.
+	/// In particular, it will clump together scrolling "floods" into fewer larger scrolls
+	/// to prevent the backend from getting choked up and taking forever to execute the requests.
+	/// </summary>
+	/// <param name="mouseScroll"></param>
+	private void FeedScrolling(Vector2 mouseScroll, float scrollSpeed) {
+		accumulatedScroll += mouseScroll * scrollSpeed;
+
+		if (accumulatedScroll.sqrMagnitude != 0 && Time.realtimeSinceStartup > lastScrollEvent + maxScrollEventRate) {
+			//Debug.Log("Do scroll: " + accumulatedScroll);
+
+			//The backend seems to have trouble coping with horizontal AND vertical scroll. So only do one at a time.
+			//(And if we do both at once, vertical appears to get priority and horizontal gets ignored.)
+
+			if (Mathf.Abs(accumulatedScroll.x) > Mathf.Abs(accumulatedScroll.y)) {
+				BrowserNative.zfb_mouseScroll(browser.browserId, (int)accumulatedScroll.x, 0);
+				accumulatedScroll.x = 0;
+				accumulatedScroll.y = Mathf.Round(accumulatedScroll.y * .5f);//reduce the thing we weren't doing so it's less likely to accumulate strange
+			} else {
+				BrowserNative.zfb_mouseScroll(browser.browserId, 0, (int)accumulatedScroll.y);
+				accumulatedScroll.x = Mathf.Round(accumulatedScroll.x * .5f);
+				accumulatedScroll.y = 0;
+			}
+
+			lastScrollEvent = Time.realtimeSinceStartup;
+		}
+	}
+
 	private void HandleKeyInput() {
 		var keyEvents = browser.UIHandler.KeyEvents;
-		if (keyEvents.Count == 0) return;
+		if (keyEvents.Count > 0) HandleKeyInput(keyEvents);
+
+		if (extraEventsToInject.Count > 0) {
+			HandleKeyInput(extraEventsToInject);
+			extraEventsToInject.Clear();
+		}
+	}
+
+	private void HandleKeyInput(List<Event> keyEvents) {
 
 #if ZF_OSX
 		ReconstructInputs(keyEvents);
@@ -139,15 +195,18 @@ internal class BrowserInput {
 			var keyCode = KeyMappings.GetWindowsKeyCode(ev);
 			if (ev.character == '\n') ev.character = '\r';//'cuz that's what Chromium expects
 
+			if (ev.character == 0) {
+				if (ev.type == EventType.KeyDown) keysToReleaseOnFocusLoss.Add(ev.keyCode);
+				else keysToReleaseOnFocusLoss.Remove(ev.keyCode);
+			}
+
 //			if (false) {
 //				if (ev.character != 0) Debug.Log("k >>> " + ev.character);
 //				else if (ev.type == EventType.KeyUp) Debug.Log("k ^^^ " + ev.keyCode);
 //				else if (ev.type == EventType.KeyDown) Debug.Log("k vvv " + ev.keyCode);
 //			}
 
-#if ZF_OSX
 			FireCommands(ev);
-#endif
 
 			if (ev.character != 0 && ev.type == EventType.KeyDown) {
 #if ZF_LINUX
@@ -164,6 +223,15 @@ internal class BrowserInput {
 		}
 	}
 
+	public void HandleFocusLoss() {
+		foreach (var keyCode in keysToReleaseOnFocusLoss) {
+			//Debug.Log("Key " + keyCode + " is held, release");
+			var wCode = KeyMappings.GetWindowsKeyCode(new Event() { keyCode = keyCode });
+			BrowserNative.zfb_keyEvent(browser.browserId, false, wCode);
+		}
+
+		keysToReleaseOnFocusLoss.Clear();
+	}
 
 #if ZF_OSX
 	/** Used by ReconstructInputs */
@@ -212,13 +280,18 @@ internal class BrowserInput {
 
 		}
 	}
+#endif
 
 	/**
 	 * OS X + Unity has issues.
 	 * Commands won't be run if the command is not in the application menu.
 	 * Here we trap keystrokes and manually fire the relevant events in the browser.
+	 * 
+	 * Also, ctrl+A stopped working with CEF at some point on Windows.
 	 */
 	protected void FireCommands(Event ev) {
+
+#if ZF_OSX
 		if (ev.type != EventType.KeyDown || ev.character != 0 || !ev.command) return;
 
 		switch (ev.keyCode) {
@@ -245,8 +318,17 @@ internal class BrowserInput {
 				break;
 		}
 
-	}
+#else
+		//mmm, yeah. I guess Unity doesn't send us the keydown on a ctrl+a keystroke anymore. 
+		if (ev.type != EventType.KeyUp || !ev.control) return;
+
+		switch (ev.keyCode) {
+			case KeyCode.A:
+				browser.SendFrameCommand(BrowserNative.FrameCommand.SelectAll);
+				break;
+		}
 #endif
+	}
 
 }
 

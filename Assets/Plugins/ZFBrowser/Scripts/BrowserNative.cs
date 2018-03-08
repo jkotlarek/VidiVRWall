@@ -1,15 +1,9 @@
-
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if UNITY_EDITOR_WIN || (UNITY_STANDALONE_WIN && !UNITY_EDITOR)
 #define ZF_WINDOWS
 #endif
 
-#if UNITY_EDITOR_LINUX || UNITY_EDITOR_OSX //|| UNITY_EDITOR_WIN
 #define PROXY_BROWSER_API
-#endif
 
-#if PROXY_BROWSER_API || UNITY_STANDALONE_LINUX || UNITY_STANDALONE_OSX
-#define HAND_LOAD_SYMBOLS
-#endif
 
 using System;
 using System.Collections;
@@ -19,15 +13,14 @@ using UnityEngine;
 using System.Runtime.InteropServices;
 using System.Text;
 using UnityEngine.Assertions;
+using System.Reflection;
+using UnityEngine.Profiling;
 #if UNITY_EDITOR
 using UnityEditor;
 using System.Diagnostics;
 using Debug = UnityEngine.Debug;
 #endif
 
-#if HAND_LOAD_SYMBOLS
-using System.Reflection;
-#endif
 
 
 // ReSharper disable InconsistentNaming
@@ -51,22 +44,70 @@ public static class BrowserNative {
 
 	public static bool NativeLoaded { get; private set; }
 
+	public static bool SymbolsLoaded { get; private set; }
+
+	/// <summary>
+	/// Lock this object before touching any of the zfb_* functions outside the main thread.
+	/// (While many of them are thread safe, the shared library can be unloaded, leading
+	/// to a possible race condition at shutdown. For example thread A grabs the value of zfb_sendRequestData,
+	/// the main thread unloads the shared library, then thread A tries to execute the pointer it has for
+	/// zfb_sendRequestData, resulting in sadness.)
+	/// </summary>
+	public static readonly object symbolsLock = new object();
+
+#if PROXY_BROWSER_API
+	public const bool UsingAPIProxy = true;
+#else
+	public const bool UsingAPIProxy = false;
+#endif
+
 	/**
 	 * List of command-line switches given to Chromium.
 	 * http://peter.sh/experiments/chromium-command-line-switches/
 	 *
 	 * If you want to change this, be sure to change it before LoadNative gets called.
-	 * Also, restart the Editor apply changes.
 	 *
 	 * Adding or removing flags may lead to instability and/or insecurity.
 	 * Make sure you understand what a flag does before you use it.
 	 * Be sure to test your use cases thoroughly after changing any flags as
 	 * things are more likely to crash or break if you aren't using the default
 	 * configuration.
+	 *
+	 * Extra non-Chromium arguments:
+	 *   --zf-cef-log-verbose
+	 *     if enabled, we'll write a lot more CEF/Chromium logging to your editor/player log file than usual
+	 *   --zf-log-internal
+	 *     If enabled, some extra logs will be dumped to the current working directory.
+	 *   --zf-browser-update-delay=N
+	 *     N = maximum update loop delay, in milliseconds. Default = 10
+	 *     Tune the message loop update speed for your preferred CPU/usage tradeoff.
+	 *     Ideally this wouldn't be necessary, but CEF seems to struggle with higher rendering framerates
+	 *     if you only tick it when it schedules a tick.
+	 *
 	 */
 	public static List<string> commandLineSwitches = new List<string>() {
+		//Smooth scrolling tends to make scrolling act wonky or break.
+		"--disable-smooth-scrolling",
+
+		//If you install the PPAPI version of Flash on your system this tells Chromium to try to use it.
+		//(download at https://get.adobe.com/flashplayer/otherversions/)
 		"--enable-system-flash",
-		//"--zf-browser-log-verbose",//if set, we'll write a lot more Chromium logging to your editor/player log file
+
+		//getUserMedia (microphone/webcam).
+		//Turning this on has security implications, it appears there's no
+		//CEF API for authorizing access, it just allows it. (ergo, any website can record the user)
+		//"--enable-media-stream",
+
+		//Enable these to get a higher browser framerate at the expense of more CPU usage:
+		// "--zf-browser-update-delay=1",
+		// "--disable-gpu-vsync",
+
+		//If you want to specify a proxy by hand:
+		//"--proxy-server=localhost:8000",
+
+
+		//"--zf-log-cef-verbose",
+		//"--zf-log-internal", 
 	};
 
 	/**
@@ -82,9 +123,34 @@ public static class BrowserNative {
 		Debug.Log("ZFWeb: " + message);
 	}
 
+	private static string _profilePath = null;
+	/**
+	 * Where should we save the user's data and cookies? Leave null to not save them.
+	 * Set before the browser system initializes. Also, restart the Editor to apply changes.
+	 */
+	public static string ProfilePath {
+		get { return _profilePath; }
+		set {
+			if (NativeLoaded) throw new InvalidOperationException("ProfilePath must be set before initializing the browser system.");
+			_profilePath = value;
+		}
+	}
+
+	/**
+	 * Loads the shared library and the function symbols so we can call zfb_* functions.
+	 */
+	public static void LoadSymbols() {
+		if (SymbolsLoaded) return;
+		var dirs = FileLocations.Dirs;
+
+		HandLoadSymbols(dirs.binariesPath);
+	}
+
 
 	public static void LoadNative() {
 		if (NativeLoaded) return;
+
+		Profiler.BeginSample("BrowserNative.LoadNative");
 
 		if (webResources == null) {
 			//if the user hasn't given us a WebResources to use, use the default
@@ -110,123 +176,67 @@ public static class BrowserNative {
 		FixProcessPermissions(dirs);
 #endif
 
-//		Debug.Log("Browser dirs " + dirs.cefPath + " " + dirs.localesPath);
 
-//		//We need a certain CWD on some platforms so we can load the DLL (now) and Loading our DLL implies loading a ton of other things, plus init() needs to
-//		//load various other files
-//		//So, change the cwd while setting up (this is more an issue in builds than the editor)
-//		var loadDir = (string)null;
-//		if (!Application.isEditor) {
-//			//We need the CWD to be the folder of the .exe in standalone builds
-//			loadDir = Directory.GetParent(Application.dataPath).FullName;
-//		}
-
-#if UNITY_STANDALONE_WIN
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
 		//make sure the child processes can be started (their dependent .dlls are next to the main .exe, not in the Plugins folder)
 		var loadDir = Directory.GetParent(Application.dataPath).FullName;
 		var path = Environment.GetEnvironmentVariable("PATH");
 		path += ";" + loadDir;
 		Environment.SetEnvironmentVariable("PATH", path);
+#elif UNITY_EDITOR_WIN
+		//help it find our .dlls
+		var path = Environment.GetEnvironmentVariable("PATH");
+		path += ";" + dirs.binariesPath;
+		Environment.SetEnvironmentVariable("PATH", path);
+#elif UNITY_EDITOR_LINUX
+		Environment.SetEnvironmentVariable("ZF_CEF_FORCE_EXE_DIR", Directory.GetParent(dirs.subprocessFile).FullName);
 #endif
 
-#if UNITY_EDITOR_LINUX
-	Environment.SetEnvironmentVariable("ZF_CEF_FORCE_EXE_DIR", Directory.GetParent(dirs.subprocessFile).FullName);
-#endif
+		LoadSymbols();
 
-#if HAND_LOAD_SYMBOLS
-		HandLoadSymbols(dirs.binariesPath);
-#endif
-
-#if !UNITY_EDITOR
 		StandaloneShutdown.Create();
-#endif
 
-//		foreach (DictionaryEntry env in Environment.GetEnvironmentVariables()) {
-//			Debug.Log("Env var " + env.Key + "=" + env.Value);
-//		}
-//
-// #if true || UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
-// 		//Add library load paths so we can load our bits
-// 		var libDir = dirs.binariesPath;
-//
-////		var path = Environment.GetEnvironmentVariable("DYLD_FRAMEWORK_PATH");
-//// 		if (!string.IsNullOrEmpty(path)) path += ":" + libDir;
-//// 		else path = libDir;
-////		Environment.SetEnvironmentVariable("DYLD_FRAMEWORK_PATH", path);
-//
-//	var	path = Environment.GetEnvironmentVariable("DYLD_LIBRARY_PATH");
-//Debug.Log("Start DYLD_LIBRARY_PATH as " + path);
-//// 		if (!string.IsNullOrEmpty(path)) path += ":" + libDir;
-//// 		else path = libDir;
-////		Environment.SetEnvironmentVariable("DYLD_LIBRARY_PATH", path);
-////
-////		Debug.Log("Set DYLD_LIBRARY_PATH to " + path);
-//
-// #endif
+		//There never should be any, but just in case, destroy any existing browsers on a re-init
+		zfb_destroyAllBrowsers();
 
-//		var oldCWD = Directory.GetCurrentDirectory();
-		try {
-//			if (loadDir != null) Directory.SetCurrentDirectory(loadDir);
-			// Debug.Log("Current dir " + Directory.GetCurrentDirectory());
+		//Caution: Careful with these functions you pass to native. The Unity Editor will
+		//reload assemblies, leaving the function pointers dangling. If any native calls try to use them
+		//before we load back up and re-register them we can crash.
+		//To prevent this, we call zfb_setCallbacksEnabled to disable callbacks before we get unloaded.
+		zfb_setDebugFunc(LogCallback);
+		zfb_setLocalRequestHandler(NewRequestCallback);
+		zfb_setCallbacksEnabled(true);
 
-			//There never should be any, but just in case, destroy any existing browsers on a re-init
-			zfb_destroyAllBrowsers();
+		var settings = new ZFBInitialSettings() {
+			cefPath = dirs.resourcesPath,
+			localePath = dirs.localesPath,
+			subprocessFile = dirs.subprocessFile,
+			userAgent = UserAgent.GetUserAgent(),
+			logFile = dirs.logFile,
+			profilePath = _profilePath,
+			debugPort = debugPort,
+			#if UNITY_EDITOR_WIN || (UNITY_STANDALONE_WIN && !UNITY_EDITOR)
+			//CEF doesn't have the multithreaded loop implemented on 'cept Windows
+			multiThreadedMessageLoop = 1,
+			#else
+			multiThreadedMessageLoop = 0,
+			#endif
+		};
 
-			//Caution: Careful with these functions you pass to native. The Unity Editor will
-			//reload assemblies, leaving the function pointers dangling. If any native calls try to use them
-			//before we load back up and re-register them... *boom*.
-			//To prevent this, we call zfb_setCallbacksEnabled to disable callbacks before we get unloaded.
-			zfb_setDebugFunc(LogCallback);
-			zfb_localRequestFuncs(HeaderCallback, DataCallback);
-			zfb_setCallbacksEnabled(true);
+		foreach (var arg in commandLineSwitches) zfb_addCLISwitch(arg);
 
-			var settings = new ZFBInitialSettings() {
-				cefPath = dirs.resourcesPath,
-				localePath = dirs.localesPath,
-				subprocessFile = dirs.subprocessFile,
-				userAgent = UserAgent.GetUserAgent(),
-				logFile = dirs.logFile,
-				debugPort = debugPort,
-				/*
-				 * This is complicated.
-				 * Depending on how this is set, you get to deal with a whole slew of bugs.
-				 *
-				 * Enabled:
-				 *   DCHECK on exit if extensions enabled
-				 *   Multithreaded support for various API funcs
-				 *
-				 * Disabled:
-				 *   Have to tick the backend, which tends to munch more CPU than we'd like
-				 *   Backend tick eats input events
-				 *   Backend tick eats crashes Unity on exit betimes
-				 */
-				#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-				//CEF doesn't have the multithreaded loop implemented on 'cept Windows
-				multiThreadedMessageLoop = 1,
-				#else
-				multiThreadedMessageLoop = 0,
-				#endif
-			};
+		var initRes = zfb_init(settings);
+		if (!initRes) throw new Exception("Failed to initialize browser system.");
 
-			foreach (var arg in commandLineSwitches) zfb_addCLISwitch(arg);
-
-//			Debug.Log("Start CEF on thread " + System.Threading.Thread.CurrentThread.ManagedThreadId);
-
-			var initRes = zfb_init(settings);
-			if (!initRes) throw new Exception("Failed to initialize browser system.");
-
-
-			NativeLoaded = true;
-
-			//System.Diagnostics.Process.Start(dirs.subprocessFile);
-		} finally {
-//			Directory.SetCurrentDirectory(oldCWD);
-		}
-
+		NativeLoaded = true;
+		Profiler.EndSample();
 
 		AppDomain.CurrentDomain.DomainUnload += (sender, args) => {
-			zfb_destroyAllBrowsers();
-			zfb_setCallbacksEnabled(false);
+			//Shutdown should happen StandaloneShutdown, but in some cases, like the Unity Editor
+			//reloading assemblies, we don't get OnApplicationQuit because we didn't "quit", even though
+			//everything gets shut down.
+			//Make sure the backend shuts down, in this case, or it will crash when we try to start it again.
+			UnloadNative();
 		};
 	}
 
@@ -247,49 +257,35 @@ public static class BrowserNative {
 		File.SetAttributes(dirs.subprocessFile, unchecked((FileAttributes)attrs));
 	}
 
-#if HAND_LOAD_SYMBOLS
 
 	private static IntPtr moduleHandle;
+	/// <summary>
+	/// Loads the browser symbols.
+	///
+	/// We don't use DllImport for a few reasons, historically for DEEPBIND support and multiple CEF versions in the same process,
+	/// but now mostly so we can unload the .dll whenever we want and to simplify picking and loading our shared library how we want.
+	/// </summary>
+	/// <param name="binariesPath"></param>
 	private static void HandLoadSymbols(string binariesPath) {
-		/*
-		Unity uses CEF. We use CEF. The versions are not the same and even if they were, we would
-		be setting up the library differently. Therefore, we need to load two different copies of
-		CEF.
+		Profiler.BeginSample("BrowserNative.HandLoadSymbols");
 
-		If we load ZFEmbedWeb with the normal DllImport method, the CEF calls in ZFEmbedWeb end
-		up going to Unity's copy of CEF, which, naturally, dies a terrible death.
+#if PROXY_BROWSER_API
+		var coreType = "ZFProxyWeb";
+#else
+		var coreType = "ZFEmbedWeb";
+#endif
 
-		In short, we need to load libZFEmbedWeb.so with the RTLD_DEEPBIND flag so it uses only
-		its copy of CEF. There's not a way to do this with DllImport and, looking at the Mono
-		source code, there's not really a practical way to have Mono do it for us.
-
-		Therefore, we'll load the .so and peck out all the functions by hand so we can call them
-		in the editor.
-		*/
-
-
-#if UNITY_EDITOR_OSX
-		var libFile = binariesPath + "/libZFEmbedWebEditor.dylib";
-#elif UNITY_STANDALONE_OSX
-		var libFile = binariesPath + "/libZFEmbedWeb.dylib";
-#elif UNITY_EDITOR_LINUX
-		/**
-		If we make a custom build of CEF+Chromium with tcmalloc disabled and the
-		current executable overridden this almost works, but we die from allocator mixing in
-		certain places, most notably when using storage backed by sqlite3.
-		Also, it runs dirt slow. Not sure why.
-		var libFile = binariesPath + "/libZFEmbedWeb.so";
-		*/
-
-		/** Start a child process and communicate with it. */
-		var libFile = binariesPath + "/libZFEmbedWebEditor.so";
-#elif UNITY_STANDALONE_LINUX
-		var libFile = binariesPath + "/libZFEmbedWeb.so";
-#elif UNITY_EDITOR_WIN
-		var libFile = binariesPath + "/ZFEmbedWebEditor.dll";
+#if UNITY_EDITOR_OSX || (!UNITY_EDITOR && UNITY_STANDALONE_OSX)
+		var libFile = binariesPath + "/lib" + coreType + ".dylib";
+#elif UNITY_EDITOR_LINUX || (!UNITY_EDITOR && UNITY_STANDALONE_LINUX)
+		var libFile = binariesPath + "/lib" + coreType + ".so";
+#elif UNITY_EDITOR_WIN || (!UNITY_EDITOR && UNITY_STANDALONE_WIN)
+		var libFile = binariesPath + "/" + coreType + ".dll";
 #else
 	#error Unknown OS.
 #endif
+
+		//Debug.Log("Loading " + libFile);
 
 		moduleHandle = OpenLib(libFile);
 
@@ -307,6 +303,33 @@ public static class BrowserNative {
 		}
 
 		//Debug.Log("Loaded " + i + " symbols");
+
+		SymbolsLoaded = true;
+
+		Profiler.EndSample();
+	}
+
+	/// <summary>
+	/// Clears out the symbols so, if the shared library has been unloaded, we get null exceptions instead
+	/// of crashes.
+	/// </summary>
+	private static void ClearSymbols() {
+		SymbolsLoaded = false;
+
+		var fields = typeof(BrowserNative).GetFields(BindingFlags.Static | BindingFlags.Public);
+		foreach (var field in fields) {
+			if (!field.Name.StartsWith("zfb_")) continue;
+			field.SetValue(null, null);
+		}
+	}
+
+
+	private static string GetLibError() {
+#if ZF_WINDOWS
+		return new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()).Message;
+#else
+		return Marshal.PtrToStringAnsi(dlerror());
+#endif
 	}
 
 	private static IntPtr OpenLib(string name) {
@@ -346,6 +369,29 @@ public static class BrowserNative {
 #endif
 	}
 
+	private static void CloseLib() {
+		if (moduleHandle == IntPtr.Zero) return;
+
+		ClearSymbols();
+
+#if ZF_WINDOWS
+		var success = FreeLibrary(moduleHandle);
+#else
+		var success = dlclose(moduleHandle) == 0;
+#endif
+
+		if (!success) {
+			throw new DllNotFoundException(
+				"Failed to unload library: " +
+				GetLibError()
+			);
+		}
+
+		//Debug.Log("Unloaded shared library");
+
+		moduleHandle = IntPtr.Zero;
+	}
+
 	private static IntPtr GetFunc(IntPtr libHandle, string fnName) {
 #if ZF_WINDOWS
 		var addr = GetProcAddress(libHandle, fnName);
@@ -370,7 +416,7 @@ public static class BrowserNative {
 	}
 	[DllImport("__Internal")] static extern IntPtr dlopen(string filename, int flags);
 	[DllImport("__Internal")] static extern IntPtr dlsym(IntPtr handle, string symbol);
-//	[DllImport("__Internal")] static extern int dlclose(IntPtr handle);
+	[DllImport("__Internal")] static extern int dlclose(IntPtr handle);
 	[DllImport("__Internal")] static extern IntPtr dlerror();
 	private static string getDlError() {
 		var err = dlerror();
@@ -381,80 +427,25 @@ public static class BrowserNative {
 	static extern IntPtr LoadLibrary([MarshalAs(UnmanagedType.LPStr)]string lpFileName);
 	[DllImport("kernel32", CharSet = CharSet.Ansi, ExactSpelling = true, SetLastError = true)]
 	static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
-#endif
+	[DllImport("kernel32", SetLastError = true)]
+	private static extern bool FreeLibrary(IntPtr hModule);
 
-	private static Dictionary<int, WebResources.Response> requests = new Dictionary<int, WebResources.Response>();
-	private static int nextRequestId = 1;
-
-	private static int HeaderCallback(string url, IntPtr mimeTypeDest, out int size, out int responseCode) {
-		//may be called on any thread
-
-		//Chop up the URL so it's easy to digest.
-		if (url.SafeStartsWith(LocalUrlPrefix)) {
-			url = "/" + url.Substring(LocalUrlPrefix.Length);
-		}
-
-		WebResources.Response response;
-		if (webResources == null) {
-			response = new WebResources.Response() {
-				data = Encoding.UTF8.GetBytes("No WebResources handler!"),
-				mimeType = "text/plain",
-				responseCode = 500,
-			};
-		} else {
-			response = webResources[url];
-		}
-
-		var data = Encoding.UTF8.GetBytes(response.mimeType);
-		if (data.Length > 99) {
-			Debug.LogWarning("mime type is too long " + response.mimeType);
-			data = new byte[0];
-		}
-
-		Marshal.Copy(data, 0, mimeTypeDest, data.Length);
-		Marshal.WriteByte(mimeTypeDest, data.Length, 0);//null-terminate
-
-		responseCode = response.responseCode;
-		size = response.data.Length;
-
-		int id;
-		lock (requests) {
-			id = nextRequestId++;
-			requests[id] = response;
-		}
-
-		return id;
+	private static void NewRequestCallback(int requestId, string url) {
+		webResources.HandleRequest(requestId, url);
 	}
 
-	private static void DataCallback(int reqId, IntPtr data, int size) {
-		//may be called on any thread
 
-		WebResources.Response response;
-		lock (requests) {
-			if (!requests.TryGetValue(reqId, out response)) {
-				response = new WebResources.Response() {
-					data = Encoding.UTF8.GetBytes("No response for request!"),
-					mimeType = "text/plain",
-					responseCode = 500,
-				};
-			}
-			requests.Remove(reqId);
-		}
-
-		Assert.AreEqual(response.data.Length, size);
-
-		if (size != 0) Marshal.Copy(response.data, 0, data, size);
-	}
-
-	/** Shuts down the native browser library and CEF. Once shut down, the system cannot be restarted. */
+	/** Shuts down the native browser library and CEF. */
 	public static void UnloadNative() {
 		if (!NativeLoaded) return;
 
-		Debug.Log("Stop CEF");
+		//Debug.Log("Stop CEF");
 
-		zfb_setCallbacksEnabled(false);
+		zfb_destroyAllBrowsers();
 		zfb_shutdown();
+		zfb_setCallbacksEnabled(false);
 		NativeLoaded = false;
+		CloseLib();
 	}
 
 
@@ -463,25 +454,14 @@ public static class BrowserNative {
 	public delegate void MessageFunc(string message);
 
 	/**
-	 * Callback for getting headers on a local request.
+	 * Callback for starting a new local request.
 	 * url is the url requested
-	 * mimeType will have 100 bytes for you to write a null-terminated string to
-	 * set size to the size of the result, in bytes
-	 * set responseCode to the http status code.
-	 * Return whatever you'd like, the value will be included when GetRequestDataFunc is called.
+	 * At present only GET requests with no added headers are supported.
+	 * After this is called, you are responsible for calling zfb_sendRequestHeaders (once)
+	 * then zfb_sendRequestData (as much as needed) to finish up the request.
 	 */
 	[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-	public delegate int GetRequestHeadersFunc(string url, IntPtr mimeType, out int size, out int responseCode);
-
-	/**
-	 * Fetches data for a request.
-	 * requestId is what you returned from GetRequestHeadersFunc
-	 * Fill data with the data for the request which is {size} size.
-	 */
-	[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-	public delegate void GetRequestDataFunc(int reqId, IntPtr data, int size);
-
-
+	public delegate void NewRequestFunc(int requestId, string url);
 
 
 	/** Called when the native backend is ready to start receiving orders. */
@@ -495,29 +475,20 @@ public static class BrowserNative {
 	/**
 	 * Called when JS calls back to us.
 	 * callbackId is the first argument,
-	 * data (UTF-8 null-terminated string) (and it's included size) are the second argument.
+	 * data (UTF-8 null-terminated string) (and its included size) are the second argument.
 	 */
 	[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 	public delegate void ForwardJSCallFunc(int browserId, int callbackId, string data, int size);
 
 	/**
-	 * Called when a browser attempts to open a new window.
-	 * newURL - The URL we're trying to open.
-	 * userInvoked - True if the window is opening form a user's action (false if its the type of pop-up that
-	 *   ought to be blocked)
-	 * possibleBrowserId - If you return NWA_NEW_BROWSER, this will be the browser id of the newly created window.
-	 *   Otherwise, ignore.
-	 * possibleSettings - If you return NWA_NEW_BROWSER, these settings will be used for the new browser, so alter them as desired.
-	 *
-	 * result - Return the NewWindowAction for what you would like to have happen.
-	 *
+	 * Called when a browser opens a new window.
+	 * creatorBrowserId - id of the browser that cause the window to be created
+	 * newBrowserId - a newly created (as if by zfb_createBrowser) browser tab
+	 * 
 	 * May be called on any thread.
 	 */
 	[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-	public delegate NewWindowAction NewWindowFunc(
-		int browserId, IntPtr /* string */ newURL, bool userInvoked,
-		int possibleBrowserId, ref ZFBSettings possibleSettings
-	);
+	public delegate void NewWindowFunc(int creatorBrowserId, int newBrowserId, IntPtr initialURL);
 
 	/**
 	 * Called when an item from ChangeType happens.
@@ -538,8 +509,8 @@ public static class BrowserNative {
 	 */
 	[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 	public delegate void DisplayDialogFunc(
-		int browserId, DialogType dialogType, string dialogText,
-		string initialPromptText, string sourceURL
+		int browserId, DialogType dialogType, IntPtr dialogText,
+		IntPtr initialPromptText, IntPtr sourceURL
 	);
 
 	/**
@@ -559,6 +530,19 @@ public static class BrowserNative {
 	 */
 	[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 	public delegate void GetCookieFunc(NativeCookie cookie);
+
+	/**
+	 * Called when nav state (can go back/forward, loaded, url) changes.
+	 */
+	[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+	public delegate void NavStateFunc(int browserId, bool canGoBack, bool canGoForward, bool lodaing, IntPtr url);
+
+	/**
+	 * Called by a native OS windows gets an event like mouse move click, etc.
+	 * data contains json details on the event
+	 */
+	[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+	public delegate void WindowCallbackFunc(int windowId, IntPtr data);
 
 
 
@@ -600,6 +584,50 @@ public static class BrowserNative {
 		CHT_CERT_ERROR,
 		/** Renderer process crashed/was killed/etc. */
 		CHT_SAD_TAB,
+		/**
+		 * The user/page has initialized a download.
+		 * arg1 (JSON) contains:
+		 *  download {id}
+		 *  {mimeType}
+		 *  {url} of the download
+		 *  {originalURL} of the download before redirection
+		 *  {suggestedName} you might save the file as
+		 *  {size} number of bytes in the download (if known)
+		 *  {contentDisposition}
+		 *
+		 * Call zfb_downloadCommand(browserId, download["id"], DownloadAction.xxyy, fileName) to cancel or save the file
+		 * (and afterward control it).
+		 */
+		CHT_DOWNLOAD_STARTED,
+		/**
+		 * Progress/status update on a download.
+		 * arg1 (JSON) contains:
+		 *  download {id}
+		 *  {speed} in bytes/sec
+		 *  {percentComplete} int in [0, 100], or -1 if unknown
+		 *  {received} number of bytes received
+		 *  {statusStr} download status. One of: complete, canceled, working, unknown
+		 *  {fullPath} we are saving to. (If you had the user pick the destination you can get it here.)
+		 *
+		 * Call zfb_downloadCommand(browserId, download["id"], DownloadAction.xxyy, null) to cancel/pause/resume the download.
+		 */
+		CHT_DOWNLOAD_STATUS,
+		/**
+		 * The element with keyboard focus has changed.
+		 * You can use this to show/hide a keyboard when needed.
+		 * arg1 (JSON) contains:
+		 *  {tagName} of the focused node, or empty of no node is focused (focus loss)
+		 *  {editable} true if it's some sort of editable text
+		 *  textual {value} of the node, if it's simple (doesn't work for things like ContentEditable nodes)
+		 */
+		CHT_FOCUSED_NODE,
+	}
+
+	public enum DownloadAction {
+		Begin,
+		Cancel,
+		Pause,
+		Resume,
 	}
 
 	/** @see cef_cursor_type_t in cef_types.h */
@@ -693,7 +721,7 @@ public static class BrowserNative {
 
 	[StructLayout(LayoutKind.Sequential, Pack = 1)]
 	public struct ZFBInitialSettings {
-		public string cefPath, localePath, subprocessFile, userAgent, logFile;
+		public string cefPath, localePath, subprocessFile, userAgent, logFile, profilePath;
 		public int debugPort, multiThreadedMessageLoop;
 	}
 
@@ -716,83 +744,167 @@ public static class BrowserNative {
 		public byte secure, httpOnly;
 	}
 
-#if !HAND_LOAD_SYMBOLS
+
+
+	/*
+	 * See HandLoadSymbols() for an explanation of what's going on here and why we use a bunch of delegates instead
+	 * of DllImport.
+	 *
+	 * Don't use this API directly unless you want to deal with things breaking.
+	 * Though it is accessible, it's not considered part of the public API for versioning purposes.
+	 * That, and you can shoot yourself in the foot and crash your app.
+	 *
+	 * Also, if you want to call any of these functions off the main thread make sure:
+	 *   - It's documented as supporting such.
+	 *   - To acquire a lock on symbolsLock first. (See its docs for why.)
+	 */
+
 	/** Does nothing. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_noop();
+	public delegate void Calltype_zfb_noop();
+	public static Calltype_zfb_noop zfb_noop;
+
 
 	/**
-	 * Some functions (getURL) allocates memory to give you a response. Call this to free it.
-	 * (Using this instead of the Mono-standard shared alloc functions lets us shed a dependency.)
+	 * Allocates and initializes a block of memory suitable for use with LoadRawTextureData to clear a texture
+	 * to the given color.
+	 * Call zfb_free on the pointer when your are done using it.
+	 * Does not require the browser system to be initialized, thread safe.
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_free(IntPtr memory);
+	public delegate IntPtr Calltype_zfb_flatColorTexture(int pixelCount, int r, int g, int b, int a);
+	public static Calltype_zfb_flatColorTexture zfb_flatColorTexture;
 
-	/** Plain old memcpy. Because sometimes Marshal.Copy falls short of our needs. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_memcpy(IntPtr dst, IntPtr src, int size);
+	/**
+	 * Copies from a zfb_getImage buffer to a Color32[] buffer.
+	 * Does not require the browser system to be initialized, thread safe.
+	 */
+	public delegate void Calltype_zfb_copyToColor32(IntPtr src, IntPtr dest, int pixelCount);
+	public static Calltype_zfb_copyToColor32 zfb_copyToColor32;
 
-	/** Returns the Chrome(ium) version as a static C string. May be called before initialization. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern IntPtr zfb_getVersion();
+	/**
+	 * Some functions allocate memory to give you a response (see their docs). Call this to free it.
+	 * Does not require the browser system to be initialized, thread safe.
+	 */
+	public delegate void Calltype_zfb_free(IntPtr mem);
+	public static Calltype_zfb_free zfb_free;
+
+
+	/**
+	 * Plain old memcpy. Because sometimes Marshal.Copy falls short of our needs.
+	 * Does not require the browser system to be initialized, thread safe.
+	 */
+	public delegate void Calltype_zfb_memcpy(IntPtr dst, IntPtr src, int size);
+	public static Calltype_zfb_memcpy zfb_memcpy;
+
+
+	/**
+	 * Returns the Chrome(ium) version as a static C string.
+	 * Does not require the browser system to be initialized, thread safe.
+	 */
+	public delegate IntPtr Calltype_zfb_getVersion();
+	public static Calltype_zfb_getVersion zfb_getVersion;
+
 
 	/** Sets a function to call for Debug.Log-style messages. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_setDebugFunc(MessageFunc debugFunc);
+	public delegate void Calltype_zfb_setDebugFunc(MessageFunc debugFunc);
+	public static Calltype_zfb_setDebugFunc zfb_setDebugFunc;
 
-	/** Sets callbacks for local (https://game.local/) requests. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_localRequestFuncs(GetRequestHeadersFunc headerFunc, GetRequestDataFunc dataFunc);
+
+	/** Sets callbacks for when a local (https://game.local/) request is started. */
+	public delegate void Calltype_zfb_setLocalRequestHandler(NewRequestFunc requestFunc);
+	public static Calltype_zfb_setLocalRequestHandler zfb_setLocalRequestHandler;
+
+	/**
+	 * Sends the headers for a response.
+	 * responseLength should be the number of bytes in the response, or -1 if unknown.
+	 * headersJSON should contain a string:string map of headers, JSON encoded
+	 *    - You should include a "Content-Type" header.
+	 *		- You may also include a ":status:" pseudoheader to set the status to a non-200 value
+	 *		- You may also include a ":statusText:" pseudoheader to set the status text
+	 * After calling this, call zfb_sendRequestData to send the actual response body.
+	 *
+	 * May be called from any thread.
+	 */
+	public delegate void Calltype_zfb_sendRequestHeaders(int requestId, int responseLength, string headersJSON);
+	public static Calltype_zfb_sendRequestHeaders zfb_sendRequestHeaders;
+
+	/**
+	 * Sends the body for a response after calling zfb_sendRequestHeaders.
+	 *
+	 * You must always write at least one byte except as described below.
+	 *
+	 * If you sent a responseLength >= 0, make sure all calls to this function add up to exactly that value.
+	 * If you sent a responseLength < 0, call this a final time with size = 0 to signify the
+	 * end of the response.
+	 *
+	 * May be called from any thread.
+	 */
+	public delegate void Calltype_zfb_sendRequestData(int requestId, IntPtr data, int dataSize);
+	public static Calltype_zfb_sendRequestData zfb_sendRequestData;
+
+
 
 	/** Enabled/disables user callbacks. Useful for disabling all callbacks when mono assemblies reload. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_setCallbacksEnabled(bool enabled);
+	public delegate void Calltype_zfb_setCallbacksEnabled(bool enabled);
+	public static Calltype_zfb_setCallbacksEnabled zfb_setCallbacksEnabled;
+
 
 	/** Destroys all browser instances. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_destroyAllBrowsers();
+	public delegate void Calltype_zfb_destroyAllBrowsers();
+	public static Calltype_zfb_destroyAllBrowsers zfb_destroyAllBrowsers;
+
 
 	/** Adds a command-line switch to Chromium, must call before zfb_init */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_addCLISwitch(string value);
+	public delegate void Calltype_zfb_addCLISwitch(string value);
+	public static Calltype_zfb_addCLISwitch zfb_addCLISwitch;
+
 
 	/** Initializes the system so we can start making browsers. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern bool zfb_init(ZFBInitialSettings settings);
+	public delegate bool Calltype_zfb_init(ZFBInitialSettings settings);
+	public static Calltype_zfb_init zfb_init;
+
 
 	/** Shuts down the system. It cannot be re-initialized. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_shutdown();
+	public delegate void Calltype_zfb_shutdown();
+	public static Calltype_zfb_shutdown zfb_shutdown;
+
 
 	/**
 	 * Creates a new browser, returning the id.
 	 * Call zfb_setReadyCallback and wait for it to fire before doing anything else.
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern int zfb_createBrowser(ZFBSettings settings);
+	public delegate int Calltype_zfb_createBrowser(ZFBSettings settings);
+	public static Calltype_zfb_createBrowser zfb_createBrowser;
 
-	/** Reports the number of un-destroyed browsers. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern int zfb_numBrowsers();
 
-	/** Closes and cleans up a browser instance. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_destoryBrowser(int id);
+	/** Reports the number of un-destroyed browsers. Slow. */
+	public delegate int Calltype_zfb_numBrowsers();
+	public static Calltype_zfb_numBrowsers zfb_numBrowsers;
+
+
+	/**
+	 * Closes and cleans up a browser instance.
+	 */
+	public delegate void Calltype_zfb_destroyBrowser(int id);
+	public static Calltype_zfb_destroyBrowser zfb_destroyBrowser;
+
 
 	/** Call once per frame if the multi-threaded message loop isn't enabled. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_tick();
+	public delegate void Calltype_zfb_tick();
+	public static Calltype_zfb_tick zfb_tick;
+
 
 	/**
 	 * Registers a function to call when the browser instance is ready to start taking orders.
 	 * {cb} may be executed immediately or on any thread.
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_setReadyCallback(int id, ReadyFunc cb);
+	public delegate void Calltype_zfb_setReadyCallback(int id, ReadyFunc cb);
+	public static Calltype_zfb_setReadyCallback zfb_setReadyCallback;
+
 
 	/** Resizes the browser. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_resize(int id, int w, int h);
+	public delegate void Calltype_zfb_resize(int id, int w, int h);
+	public static Calltype_zfb_resize zfb_resize;
+
 
 	/**
 	 * Adds the given browser {overlayBrowserId} as an overlay of this browser {browserId}.
@@ -802,8 +914,9 @@ public static class BrowserNative {
 	 *
 	 * While {overlayBrowser} is overlaying another browser, do not call zfb_getImage on it.
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_setOverlay(int browserId, int overlayBrowserId);
+	public delegate void Calltype_zfb_setOverlay(int browserId, int overlayBrowserId);
+	public static Calltype_zfb_setOverlay zfb_setOverlay;
+
 
 	/**
 	 * Gets the image data for the current frame.
@@ -811,107 +924,116 @@ public static class BrowserNative {
 	 *
 	 * If there are no changes since last call, the pixel data will be null (unless you specify forceDirty).
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern RenderData zfb_getImage(int id, bool forceDirty);
+	public delegate RenderData Calltype_zfb_getImage(int id, bool forceDirty);
+	public static Calltype_zfb_getImage zfb_getImage;
+
+	/**
+	 * Registers a callback for nav state updates.
+	 * Keep track of what it tells you to answer questions like what the current URL is and if we can go back/forward.
+	 * (The URL overlaps a bit with CHT_FETCH_*, but this should fire earlier (when we start) as opposed to when it's done.)
+	 */
+	public delegate void Calltype_zfb_registerNavStateCallback(int id, NavStateFunc callback);
+	public static Calltype_zfb_registerNavStateCallback zfb_registerNavStateCallback;
 
 	/**
 	 * Navigates to the given URL. If force it ture, it will go there right away.
 	 * If force is false, the pages that wish to can prompt the user and possibly cancel the
 	 * navigation.
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_goToURL(int id, string url, bool force);
+	public delegate void Calltype_zfb_goToURL(int id, string url, bool force);
+	public static Calltype_zfb_goToURL zfb_goToURL;
 
 	/**
 	 * Loads the given HTML string as if it were the given URL.
 	 * Use http://-like porotocols or else things may not work right.
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_goToHTML(int id, string html, string url);
-
-	/**
-	 * Gets the current url, returned as a UTF-8 null-terminated string.
-	 * Call zfb_free on the result when you are done with it.
-	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern IntPtr zfb_getURL(int id);
-
-	/** Can we go back (-1) or forward (1)? */
-	[DllImport("ZFEmbedWeb")]
-	public static extern bool zfb_canNav(int id, int direction);
+	public delegate void Calltype_zfb_goToHTML(int id, string html, string url);
+	public static Calltype_zfb_goToHTML zfb_goToHTML;
 
 	/** Go back (-1) or forward (1) */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_doNav(int id, int direction);
+	public delegate void Calltype_zfb_doNav(int id, int direction);
+	public static Calltype_zfb_doNav zfb_doNav;
 
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_setZoom(int id, double zoom);
 
-	[DllImport("ZFEmbedWeb")]
-	public static extern bool zfb_isLoading(int id);
+	public delegate void Calltype_zfb_setZoom(int id, double zoom);
+	public static Calltype_zfb_setZoom zfb_setZoom;
+
 
 	/** Stop, refresh, or force-refresh */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_changeLoading(int id, LoadChange what);
+	public delegate void Calltype_zfb_changeLoading(int id, LoadChange what);
+	public static Calltype_zfb_changeLoading zfb_changeLoading;
 
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_showDevTools(int id, bool show);
+
+	public delegate void Calltype_zfb_showDevTools(int id, bool show);
+	public static Calltype_zfb_showDevTools zfb_showDevTools;
+
 
 	/**
 	 * Informs the browser if it's focused for keyboard input.
 	 * Among other things, this controls if the blinking text cursor appears in an active text field.
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_setFocused(int id, bool focused);
+	public delegate void Calltype_zfb_setFocused(int id, bool focused);
+	public static Calltype_zfb_setFocused zfb_setFocused;
+
 
 	/**
 	 * Reports the mouse's current location.
 	 * x and y are in the range [0,1]. (0, 0) is top-left, (1, 1) is bottom-right
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_mouseMove(int id, float x, float y);
+	public delegate void Calltype_zfb_mouseMove(int id, float x, float y);
+	public static Calltype_zfb_mouseMove zfb_mouseMove;
 
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_mouseButton(int id, MouseButton button, bool down, int clickCount);
+
+	public delegate void Calltype_zfb_mouseButton(int id, MouseButton button, bool down, int clickCount);
+	public static Calltype_zfb_mouseButton zfb_mouseButton;
+
 
 	/** Reports a mouse scroll. One "tick" of a scroll wheel is generally around 120 units. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_mouseScroll(int id, int deltaX, int deltaY);
+	public delegate void Calltype_zfb_mouseScroll(int id, int deltaX, int deltaY);
+	public static Calltype_zfb_mouseScroll zfb_mouseScroll;
+
 
 	/**
 	 * Report a key down/up event. Repeated "virtual" keystrokes are simulated by repeating the down event without
 	 * an interveneing up event.
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_keyEvent(int id, bool down, int windowsKeyCode);
+	public delegate void Calltype_zfb_keyEvent(int id, bool down, int windowsKeyCode);
+	public static Calltype_zfb_keyEvent zfb_keyEvent;
+
 
 	/**
 	 * Report a typed character. This typically interleaves with calls to zfb_keyEvent
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_characterEvent(int id, int character, int windowsKeyCode);
+	public delegate void Calltype_zfb_characterEvent(int id, int character, int windowsKeyCode);
+	public static Calltype_zfb_characterEvent zfb_characterEvent;
+
 
 	/** Register a function to call when console.log etc. is called in the browser. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_registerConsoleCallback(int id, ConsoleFunc callback);
+	public delegate void Calltype_zfb_registerConsoleCallback(int id, ConsoleFunc callback);
+	public static Calltype_zfb_registerConsoleCallback zfb_registerConsoleCallback;
 
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_evalJS(int id, string script, string scriptURL);
+
+	public delegate void Calltype_zfb_evalJS(int id, string script, string scriptURL);
+	public static Calltype_zfb_evalJS zfb_evalJS;
+
 
 	/** Registers a callback to call when window._zfb_event(int, string) is called in the browser. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_registerJSCallback(int id, ForwardJSCallFunc cb);
+	public delegate void Calltype_zfb_registerJSCallback(int id, ForwardJSCallFunc cb);
+	public static Calltype_zfb_registerJSCallback zfb_registerJSCallback;
+
 
 	/** Registers a callback that is called when something from ChangeType happens. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_registerChangeCallback(int id, ChangeFunc cb);
+	public delegate void Calltype_zfb_registerChangeCallback(int id, ChangeFunc cb);
+	public static Calltype_zfb_registerChangeCallback zfb_registerChangeCallback;
+
 
 	/**
 	 * Gets the current mouse cursor. If the type is CursorType.Custom, width and height will be filled with
 	 * the width and height of the custom cursor.
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern CursorType zfb_getMouseCursor(int id, out int width, out int height);
+	public delegate CursorType Calltype_zfb_getMouseCursor(int id, out int width, out int height);
+	public static Calltype_zfb_getMouseCursor zfb_getMouseCursor;
+
 
 	/**
 	 * Call this if zfb_getMouseCursor tells you there's a custom cursor.
@@ -921,204 +1043,96 @@ public static class BrowserNative {
 	 *
 	 * {hotX} and {hoyY} will be filled with the cursor's hotspot.
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_getMouseCustomCursor(int id, IntPtr buffer, int width, int height, out int hotX, out int hotY);
+	public delegate void Calltype_zfb_getMouseCustomCursor(int id, IntPtr buffer, int width, int height, out int hotX, out int hotY);
+	public static Calltype_zfb_getMouseCustomCursor zfb_getMouseCustomCursor;
+
 
 	/** Registers a DisplayDialogFunc for this browser. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_registerDialogCallback(int id, DisplayDialogFunc cb);
+	public delegate void Calltype_zfb_registerDialogCallback(int id, DisplayDialogFunc cb);
+	public static Calltype_zfb_registerDialogCallback zfb_registerDialogCallback;
+
 
 	/** Callback for a dialog. See the docs on DisplayDialogFunc. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_sendDialogResults(int id, bool affirmed, string text1, string text2);
+	public delegate void Calltype_zfb_sendDialogResults(int id, bool affirmed, string text1, string text2);
+	public static Calltype_zfb_sendDialogResults zfb_sendDialogResults;
+
 
 	/** Registers a NewWindowFunc for pop ups. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_registerPopupCallback(int id, NewWindowFunc cb);
+	public delegate void Calltype_zfb_registerPopupCallback(int id, NewWindowAction windowAction, ZFBSettings baseSettings, NewWindowFunc cb);
+	public static Calltype_zfb_registerPopupCallback zfb_registerPopupCallback;
+
 
 	/** Registers a ShowContextMenuFunc for the context menu. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_registerContextMenuCallback(int id, ShowContextMenuFunc cb);
+	public delegate void Calltype_zfb_registerContextMenuCallback(int id, ShowContextMenuFunc cb);
+	public static Calltype_zfb_registerContextMenuCallback zfb_registerContextMenuCallback;
+
 
 	/**
 	 * After your ShowContextMenuFunc has been called,
 	 * call this to report what item the user selected.
 	 * If the menu was canceled, send -1.
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_sendContextMenuResults(int id, int commandId);
+	public delegate void Calltype_zfb_sendContextMenuResults(int id, int commandId);
+	public static Calltype_zfb_sendContextMenuResults zfb_sendContextMenuResults;
+
 
 	/**
 	 * Sends a command, such as copy, paste, or select to the focused frame in the given browser.
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_sendCommandToFocusedFrame(int id, FrameCommand command);
+	public delegate void Calltype_zfb_sendCommandToFocusedFrame(int id, FrameCommand command);
+	public static Calltype_zfb_sendCommandToFocusedFrame zfb_sendCommandToFocusedFrame;
+
 
 	/** Fetches all the cookies, calling the given callback for every cookie. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_getCookies(int id, GetCookieFunc cb);
+	public delegate void Calltype_zfb_getCookies(int id, GetCookieFunc cb);
+	public static Calltype_zfb_getCookies zfb_getCookies;
+
 
 	/** Alters the given cookie as specified. */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_editCookie(int id, NativeCookie cookie, CookieAction action);
+	public delegate void Calltype_zfb_editCookie(int id, NativeCookie cookie, CookieAction action);
+	public static Calltype_zfb_editCookie zfb_editCookie;
+
 
 	/**
 	 * Deletes all the cookies.
 	 * (Though it takes a browser, this will typically clear all cookies for all browsers.)
 	 */
-	[DllImport("ZFEmbedWeb")]
-	public static extern void zfb_clearCookies(int id);
-
-#else //HAND_LOAD_SYMBOLS is true:
-	//See HandLoadSymbols() for an explanation of what's going on here
-	public delegate void Calltype_zfb_noop();
-	public static Calltype_zfb_noop zfb_noop;
-
-	public delegate void Calltype_zfb_free(IntPtr mem);
-	public static Calltype_zfb_free zfb_free;
-
-	public delegate void Calltype_zfb_memcpy(IntPtr dst, IntPtr src, int size);
-	public static Calltype_zfb_memcpy zfb_memcpy;
-
-	public delegate IntPtr Calltype_zfb_getVersion();
-	public static Calltype_zfb_getVersion zfb_getVersion;
-
-	public delegate void Calltype_zfb_setDebugFunc(MessageFunc debugFunc);
-	public static Calltype_zfb_setDebugFunc zfb_setDebugFunc;
-
-	public delegate void Calltype_zfb_localRequestFuncs(GetRequestHeadersFunc headerFunc, GetRequestDataFunc dataFunc);
-	public static Calltype_zfb_localRequestFuncs zfb_localRequestFuncs;
-
-	public delegate void Calltype_zfb_setCallbacksEnabled(bool enabled);
-	public static Calltype_zfb_setCallbacksEnabled zfb_setCallbacksEnabled;
-
-	public delegate void Calltype_zfb_destroyAllBrowsers();
-	public static Calltype_zfb_destroyAllBrowsers zfb_destroyAllBrowsers;
-
-	public delegate void Calltype_zfb_addCLISwitch(string value);
-	public static Calltype_zfb_addCLISwitch zfb_addCLISwitch;
-
-	public delegate bool Calltype_zfb_init(ZFBInitialSettings settings);
-	public static Calltype_zfb_init zfb_init;
-
-	public delegate void Calltype_zfb_shutdown();
-	public static Calltype_zfb_shutdown zfb_shutdown;
-
-	public delegate int Calltype_zfb_createBrowser(ZFBSettings settings);
-	public static Calltype_zfb_createBrowser zfb_createBrowser;
-
-	public delegate int Calltype_zfb_numBrowsers();
-	public static Calltype_zfb_numBrowsers zfb_numBrowsers;
-
-	public delegate void Calltype_zfb_destoryBrowser(int id);
-	public static Calltype_zfb_destoryBrowser zfb_destoryBrowser;
-
-	public delegate void Calltype_zfb_tick();
-	public static Calltype_zfb_tick zfb_tick;
-
-	public delegate void Calltype_zfb_setReadyCallback(int id, ReadyFunc cb);
-	public static Calltype_zfb_setReadyCallback zfb_setReadyCallback;
-
-	public delegate void Calltype_zfb_resize(int id, int w, int h);
-	public static Calltype_zfb_resize zfb_resize;
-
-	public delegate void Calltype_zfb_setOverlay(int browserId, int overlayBrowserId);
-	public static Calltype_zfb_setOverlay zfb_setOverlay;
-
-	public delegate RenderData Calltype_zfb_getImage(int id, bool forceDirty);
-	public static Calltype_zfb_getImage zfb_getImage;
-
-	public delegate void Calltype_zfb_goToURL(int id, string url, bool force);
-	public static Calltype_zfb_goToURL zfb_goToURL;
-
-	public delegate void Calltype_zfb_goToHTML(int id, string html, string url);
-	public static Calltype_zfb_goToHTML zfb_goToHTML;
-
-	public delegate IntPtr Calltype_zfb_getURL(int id);
-	public static Calltype_zfb_getURL zfb_getURL;
-
-	public delegate bool Calltype_zfb_canNav(int id, int direction);
-	public static Calltype_zfb_canNav zfb_canNav;
-
-	public delegate void Calltype_zfb_doNav(int id, int direction);
-	public static Calltype_zfb_doNav zfb_doNav;
-
-	public delegate void Calltype_zfb_setZoom(int id, double zoom);
-	public static Calltype_zfb_setZoom zfb_setZoom;
-
-	public delegate bool Calltype_zfb_isLoading(int id);
-	public static Calltype_zfb_isLoading zfb_isLoading;
-
-	public delegate void Calltype_zfb_changeLoading(int id, LoadChange what);
-	public static Calltype_zfb_changeLoading zfb_changeLoading;
-
-	public delegate void Calltype_zfb_showDevTools(int id, bool show);
-	public static Calltype_zfb_showDevTools zfb_showDevTools;
-
-	public delegate void Calltype_zfb_setFocused(int id, bool focused);
-	public static Calltype_zfb_setFocused zfb_setFocused;
-
-	public delegate void Calltype_zfb_mouseMove(int id, float x, float y);
-	public static Calltype_zfb_mouseMove zfb_mouseMove;
-
-	public delegate void Calltype_zfb_mouseButton(int id, MouseButton button, bool down, int clickCount);
-	public static Calltype_zfb_mouseButton zfb_mouseButton;
-
-	public delegate void Calltype_zfb_mouseScroll(int id, int deltaX, int deltaY);
-	public static Calltype_zfb_mouseScroll zfb_mouseScroll;
-
-	public delegate void Calltype_zfb_keyEvent(int id, bool down, int windowsKeyCode);
-	public static Calltype_zfb_keyEvent zfb_keyEvent;
-
-	public delegate void Calltype_zfb_characterEvent(int id, int character, int windowsKeyCode);
-	public static Calltype_zfb_characterEvent zfb_characterEvent;
-
-	public delegate void Calltype_zfb_registerConsoleCallback(int id, ConsoleFunc callback);
-	public static Calltype_zfb_registerConsoleCallback zfb_registerConsoleCallback;
-
-	public delegate void Calltype_zfb_evalJS(int id, string script, string scriptURL);
-	public static Calltype_zfb_evalJS zfb_evalJS;
-
-	public delegate void Calltype_zfb_registerJSCallback(int id, ForwardJSCallFunc cb);
-	public static Calltype_zfb_registerJSCallback zfb_registerJSCallback;
-
-	public delegate void Calltype_zfb_registerChangeCallback(int id, ChangeFunc cb);
-	public static Calltype_zfb_registerChangeCallback zfb_registerChangeCallback;
-
-	public delegate CursorType Calltype_zfb_getMouseCursor(int id, out int width, out int height);
-	public static Calltype_zfb_getMouseCursor zfb_getMouseCursor;
-
-	public delegate void Calltype_zfb_getMouseCustomCursor(int id, IntPtr buffer, int width, int height, out int hotX, out int hotY);
-	public static Calltype_zfb_getMouseCustomCursor zfb_getMouseCustomCursor;
-
-	public delegate void Calltype_zfb_registerDialogCallback(int id, DisplayDialogFunc cb);
-	public static Calltype_zfb_registerDialogCallback zfb_registerDialogCallback;
-
-	public delegate void Calltype_zfb_sendDialogResults(int id, bool affirmed, string text1, string text2);
-	public static Calltype_zfb_sendDialogResults zfb_sendDialogResults;
-
-	public delegate void Calltype_zfb_registerPopupCallback(int id, NewWindowFunc cb);
-	public static Calltype_zfb_registerPopupCallback zfb_registerPopupCallback;
-
-	public delegate void Calltype_zfb_registerContextMenuCallback(int id, ShowContextMenuFunc cb);
-	public static Calltype_zfb_registerContextMenuCallback zfb_registerContextMenuCallback;
-
-	public delegate void Calltype_zfb_sendContextMenuResults(int id, int commandId);
-	public static Calltype_zfb_sendContextMenuResults zfb_sendContextMenuResults;
-
-	public delegate void Calltype_zfb_sendCommandToFocusedFrame(int id, FrameCommand command);
-	public static Calltype_zfb_sendCommandToFocusedFrame zfb_sendCommandToFocusedFrame;
-
-	public delegate void Calltype_zfb_getCookies(int id, GetCookieFunc cb);
-	public static Calltype_zfb_getCookies zfb_getCookies;
-
-	public delegate void Calltype_zfb_editCookie(int id, NativeCookie cookie, CookieAction action);
-	public static Calltype_zfb_editCookie zfb_editCookie;
-
 	public delegate void Calltype_zfb_clearCookies(int id);
 	public static Calltype_zfb_clearCookies zfb_clearCookies;
 
+	/**
+	 * Take an action on a download.
+	 * fileName is ignored except when beginning a download.
+	 * At the outset:
+	 *   Begin: Starts the download. Saves to the given file if given. If fileName is null, the user will be prompted.
+	 *   Cancel: Does nothing with a download.
+	 * After starting a download:
+	 *   Pause, Cancel, Resume: Does what it says on the tin.
+	 * Once a download is finished or canceled it is not valid to call this function for that download any more.
+	 */
+	public delegate void Calltype_zfb_downloadCommand(int id, int downloadId, DownloadAction command, string fileName);
+	public static Calltype_zfb_downloadCommand zfb_downloadCommand;
 
+
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+	/**
+	 * Creates a new OS-native window in this process, returning an id.
+	 */
+	public delegate int Calltype_zfb_windowCreate(String title, WindowCallbackFunc eventHandler);
+	public static Calltype_zfb_windowCreate zfb_windowCreate;
+
+	/**
+	 * Renders the contents of the given browser into the given OS window.
+	 */
+	public delegate void Calltype_zfb_windowRender(int windowId, int browserId);
+	public static Calltype_zfb_windowRender zfb_windowRender;
+
+	/**
+	 * Closes the given window.
+	 * Pass -1 for the id to close all windows.
+	 */
+	public delegate void Calltype_zfb_windowClose(int windowId);
+	public static Calltype_zfb_windowClose zfb_windowClose;
 #endif
 }
 

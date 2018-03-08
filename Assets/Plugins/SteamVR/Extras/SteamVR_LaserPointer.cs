@@ -25,8 +25,6 @@ public class SteamVR_LaserPointer : MonoBehaviour
     public Transform reference;
     public event PointerEventHandler PointerIn;
     public event PointerEventHandler PointerOut;
-    public event PointerEventHandler PointerStay;
-    public RaycastHit pointerHit;
 
     Transform previousContact = null;
 
@@ -77,13 +75,6 @@ public class SteamVR_LaserPointer : MonoBehaviour
             PointerOut(this, e);
     }
 
-    public virtual void OnPointerStay(PointerEventArgs e, RaycastHit hit)
-    {
-        pointerHit = hit;
-        if (PointerStay != null)
-            PointerStay(this, e);
-    }
-
 
     // Update is called once per frame
 	void Update ()
@@ -127,21 +118,6 @@ public class SteamVR_LaserPointer : MonoBehaviour
             argsIn.target = hit.transform;
             OnPointerIn(argsIn);
             previousContact = hit.transform;
-        }
-        if(bHit && previousContact == hit.transform)
-        {
-            PointerEventArgs argsStay = new PointerEventArgs();
-            if(controller != null)
-            {
-                argsStay.controllerIndex = controller.controllerIndex;
-            }
-            argsStay.distance = hit.distance;
-            argsStay.flags = 0;
-            argsStay.target = hit.transform;
-            OnPointerStay(argsStay, hit);
-            
-            //tell the browser it should think the cursor is at hit.point
-
         }
         if(!bHit)
         {

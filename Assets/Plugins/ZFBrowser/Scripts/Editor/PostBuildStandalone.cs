@@ -14,14 +14,14 @@ namespace ZenFulcrum.EmbeddedBrowser {
  */
 class PostBuildStandalone {
 
-	private static readonly List<string> rootDirDlls = new List<string>{
-		"d3dcompiler_43.dll",
-		"d3dcompiler_47.dll",
-		"libEGL.dll",
-		"libGLESv2.dll",
-		"widevinecdmadapter.dll",
-		"zf_cef.dll",
-	};
+//	private static readonly List<string> rootDirDlls = new List<string>{
+//		"d3dcompiler_43.dll",
+//		"d3dcompiler_47.dll",
+//		"libEGL.dll",
+//		"libGLESv2.dll",
+//		"widevinecdmadapter.dll",
+//		"zf_cef.dll",
+//	};
 
 	[PostProcessBuild(10)]
 	public static void PostprocessWindowsBuild(BuildTarget target, string buildFile) {
@@ -32,19 +32,22 @@ class PostBuildStandalone {
 		var buildName = Regex.Match(buildFile, @"/([^/]+)\.exe$").Groups[1].Value;
 		var buildPath = Directory.GetParent(buildFile);
 		var dataPath = buildPath + "/" + buildName + "_Data";
+		var pluginsPath = dataPath + "/Plugins/";
 
 		//can't use FileLocations because we may not be building the same type as the editor
 		var platformPluginsSrc = ZFFolder + "/Plugins/w" + (target == BuildTarget.StandaloneWindows64 ? "64" : "32");
 
 		//Copy stuff we need in the root dir there
-		foreach (var file in rootDirDlls) {
-			ForceMove(
-				dataPath + "/Plugins/" + file,
-				buildPath + "/" + file
-			);
-		}
-		File.Copy(platformPluginsSrc + "/natives_blob.bin", buildPath + "/natives_blob.bin", true);
-		File.Copy(platformPluginsSrc + "/snapshot_blob.bin", buildPath + "/snapshot_blob.bin", true);
+//		foreach (var file in rootDirDlls) {
+//			ForceMove(
+//				dataPath + "/Plugins/" + file,
+//				buildPath + "/" + file
+//			);
+//		}
+		File.Copy(platformPluginsSrc + "/natives_blob.bin", pluginsPath + "/natives_blob.bin", true);
+		File.Copy(platformPluginsSrc + "/snapshot_blob.bin", pluginsPath + "/snapshot_blob.bin", true);
+
+		File.Copy(ZFFolder + "/ThirdPartyNotices.txt", pluginsPath + "/ThirdPartyNotices.txt", true);
 
 		//Copy the needed resources
 		var resSrcDir = ZFFolder + "/Plugins/CEFResources";
@@ -52,17 +55,16 @@ class PostBuildStandalone {
 			var fileName = new FileInfo(filePath).Name;
 			if (fileName.EndsWith(".meta")) continue;
 
-
-			File.Copy(filePath, dataPath + "/Plugins/" + fileName, true);
+			File.Copy(filePath, pluginsPath + fileName, true);
 		}
 
 		//(Unlike locales, icudtl.dat can't be put in a different folder)
-		File.Copy(platformPluginsSrc + "/icudtl.dat", buildPath + "/icudtl.dat", true);
+		File.Copy(platformPluginsSrc + "/icudtl.dat", pluginsPath + "/icudtl.dat", true);
 
 		//Slave process (doesn't get automatically copied by Unity like the .dlls)
 		File.Copy(
 			platformPluginsSrc + "/" + FileLocations.SlaveExecutable + ".exe",
-			dataPath + "/Plugins/" + FileLocations.SlaveExecutable + ".exe",
+			pluginsPath + FileLocations.SlaveExecutable + ".exe",
 			true
 		);
 
@@ -122,7 +124,7 @@ class PostBuildStandalone {
 
 		File.Copy(platformPluginsSrc + "/libgcrypt.so.11", dataPath + "/Plugins/libgcrypt.so.11", true);
 
-
+		File.Copy(ZFFolder + "/ThirdPartyNotices.txt", dataPath + "/Plugins/ThirdPartyNotices.txt", true);
 
 		//Slave process (doesn't get automatically copied by Unity like the .dlls)
 		File.Copy(
@@ -146,10 +148,14 @@ class PostBuildStandalone {
 
 	[PostProcessBuild(10)]
 	public static void PostprocessMacBuild(BuildTarget target, string buildFile) {
-		if (target == BuildTarget.StandaloneOSXIntel || target == BuildTarget.StandaloneOSX) {
+#if UNITY_2017_3_OR_NEWER
+		if (target != BuildTarget.StandaloneOSX) return;
+#else
+		if (target == BuildTarget.StandaloneOSXUniversal || target == BuildTarget.StandaloneOSXIntel) {
 			throw new Exception("Only x86_64 is supported");
 		}
 		if (target != BuildTarget.StandaloneOSXIntel64) return;
+#endif
 
 		Debug.Log("Post processing " + buildFile);
 
@@ -161,13 +167,16 @@ class PostBuildStandalone {
 		CopyDirectory(
 			platformPluginsSrc + "/BrowserLib.app/Contents/Frameworks/Chromium Embedded Framework.framework",
 			buildPath + "/Contents/Frameworks/Chromium Embedded Framework.framework"
-		);	
+		);
 		CopyDirectory(
 			platformPluginsSrc + "/BrowserLib.app/Contents/Frameworks/ZFGameBrowser.app",
 			buildPath + "/Contents/Frameworks/ZFGameBrowser.app"
 		);
 
-		File.Copy(platformPluginsSrc + "/libZFEmbedWeb.dylib", buildPath + "/Contents/Plugins/libZFEmbedWeb.dylib", true);
+		File.Copy(platformPluginsSrc + "/libZFProxyWeb.dylib", buildPath + "/Contents/Plugins/libZFProxyWeb.dylib", true);
+
+		File.Copy(ZFFolder + "/ThirdPartyNotices.txt", buildPath + "/ThirdPartyNotices.txt", true);
+
 
 		//BrowserAssets
 		WriteBrowserAssets(buildPath + "/Contents/" + StandaloneWebResources.DefaultPath);

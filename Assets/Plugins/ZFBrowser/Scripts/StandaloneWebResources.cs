@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
+using System.Threading;
 using UnityEngine;
 
 namespace ZenFulcrum.EmbeddedBrowser {
@@ -51,21 +52,49 @@ public class StandaloneWebResources : WebResources {
 			}
 		}
 	}
+	
+	public override void HandleRequest(int id, string url) {
+		var parsedURL = new Uri(url);
+		var path = WWW.UnEscapeURL(parsedURL.AbsolutePath);
 
-	public override byte[] GetData(string path) {
 		IndexEntry entry;
 		if (!toc.TryGetValue(path, out entry)) {
-			return null;
+			SendError(id, "Not found", 404);
+			return;
 		}
 
-		using (var file = File.OpenRead(dataFile)) {
-			file.Seek(entry.offset, SeekOrigin.Begin);
-			var data = new byte[entry.length];
-			var readLen = file.Read(data, 0, entry.length);
-			if (readLen != data.Length) throw new Exception("Insufficient data for file");
+		new Thread(() => {
+			try {
+				var ext = Path.GetExtension(entry.name);
+				if (ext.Length > 0) ext = ext.Substring(1);
 
-			return data;
-		}
+				string mimeType;
+				if (!extensionMimeTypes.TryGetValue(ext, out mimeType)) {
+					mimeType = extensionMimeTypes["*"];
+				}
+
+				using (var file = File.OpenRead(dataFile)) {
+					var pre = new ResponsePreamble {
+						headers = null,
+						length = entry.length,
+						mimeType = mimeType,
+						statusCode = 200,
+					};
+					SendPreamble(id, pre);
+
+					file.Seek(entry.offset, SeekOrigin.Begin);
+					var data = new byte[entry.length];
+					var readLen = file.Read(data, 0, entry.length);
+					if (readLen != data.Length) throw new Exception("Insufficient data for file");
+
+					SendData(id, data);
+				}
+			} catch (Exception ex) {
+				Debug.LogException(ex);
+			}
+			
+		}).Start();
+
 	}
 
 	public void WriteData(Dictionary<string, byte[]> files) {

@@ -37,11 +37,11 @@ public class DialogHandler : MonoBehaviour {
 		//Use the parent texture. Except, we don't actually use it. So
 		//mostly we just mimic the size and don't consume more texture memory.
 		db.Resize(parent.Texture);
-		db.LoadHTML(dialogPage, "about:dialog");
+		db.LoadHTML(dialogPage, "zfb://dialog");
 		db.UIHandler = parent.UIHandler;
 
 		db.RegisterFunction("reportDialogResult", args => {
-			dialogCallback(args[0], args[1], args[3]);
+			dialogCallback(args[0], args[1], args[2]);
 			handler.Hide();
 		});			
 		db.RegisterFunction("reportContextMenuResult", args => {
@@ -65,7 +65,7 @@ public class DialogHandler : MonoBehaviour {
 
 		Show();
 
-//		Debug.Log("HandleDialog " + type + " text " + text);
+		//Debug.Log("HandleDialog " + type + " text " + text + " prompt " + promptDefault);
 
 		switch (type) {
 			case BrowserNative.DialogType.DLT_ALERT:

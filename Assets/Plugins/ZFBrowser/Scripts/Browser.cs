@@ -1,10 +1,10 @@
 using System;
 using UnityEngine;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
 using UnityEngine.Assertions;
+using UnityEngine.Serialization;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -30,18 +30,18 @@ public class Browser : MonoBehaviour {
 		/** Navigate the current window to the new window's URL. */
 		Redirect,
 		/**
-		 * Create a new Browser instance to handle the new window.
-		 * For this to be useful, you'll typically want to fill NewWindowHandler with an
+		 * Create a new Browser instance to handle rendering the new window in the scene.
+		 * For this to be useful, you'll need to supply an INewWindowHandler with an
 		 * implementation of your choosing.
-		 *
-		 * (If NewWindowHandler isn't set, an exception will be given; without you setting it up for us,
-		 * we don't know where in the scene to place the new Browser or what to make it look like.)
+		 * (If you set this behavior in the inspector, it won't take effect until you call SetNewWindowHandler.)
 		 */
 		NewBrowser,
 		/**
 		 * Create a new OS window, outside the game, to show the page.
-		 * At present, there is no way to control or interact with the new window outside JavaScript calls
+		 * Controlling and interacting with the new window outside is limited, though you can use JavaScript calls
 		 * from the parent.
+		 * OS-level windows may have unexpected or incomplete behavior. Using this outside of debugging/testing
+		 * is not officially supported.
 		 */
 		NewWindow,
 	}
@@ -77,12 +77,14 @@ generating mipmaps, try using one of the ""emulate mipmap"" shader variants.
 To change at runtime modify this value and call browser.Resize.")]
 	public bool generateMipmap = false;
 
-	[Tooltip(@"Initial background color to use for pages.
-You may pick any opaque color. As a special case, if alpha == 0 the entire background will be rendered transparent.
-(Be sure to use a transparent-capable shader to see it.)
+	[Tooltip(@"Base background color to use for pages.
 
-This value cannot be changed after the first InputUpdate() tick, create a new browser if you need a different option.")]
-	public Color32 backgroundColor = new Color32(0, 0, 0, 0);//default to transparent
+The texture will be cleared to this color until the page has rendered. Additionally, if baseColor.a is not 
+fully opaque the browser will render transparently. (Don't forget to use an appropriate material for transparency.)
+
+Don't change this after the first Update() tick. (You can still tweak a page via EvalJS and CSS.)")]
+	[FormerlySerializedAs("backgroundColor")]
+	public Color32 baseColor = new Color32(0, 0, 0, 0);//default to transparent
 
 
 	[Tooltip(@"Initial browser ""zoom level"". Negative numbers are smaller, zero is normal, positive numbers are larger.
@@ -112,9 +114,15 @@ May be changed at any time.
 	[Tooltip(@"What should we do when a user/the page tries to open a new window?
 
 For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of your creation.
+
+Don't use ""New Window"" outside debugging and testing.
+
+Use SetNewWindowHandler to adjust at runtime.
 ")]
-	public NewWindowAction newWindowAction = NewWindowAction.Redirect;
-	/** If newWindowAction == NewBrowser, this will be called to create the new browser object. */
+	[SerializeField]
+	private NewWindowAction newWindowAction = NewWindowAction.Redirect;
+
+	[Obsolete("Use SetNewWindowHandler", true)]
 	public INewWindowHandler NewWindowHandler { get; set; }
 
 	/** If false, the texture won't be updated with new changes. */
@@ -136,6 +144,7 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 	public event Action<Texture2D> afterResize = t => { };
 	protected bool textureIsOurs = false;
 	protected bool forceNextRender = true;
+	protected bool isPopup = false;
 
 	/** List of tasks to execute on the main thread. May be used on any thread, but lock before touching. */
 	protected List<Action> thingsToDo = new List<Action>();
@@ -185,6 +194,7 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 	 * loadData['status'] contains the status code, loadData['url'] the url
 	 * (Top frame only.)
 	 */
+	[Obsolete("Doesn't fire reliably due to its design. Consider using onLoad or onNavStateChange.")]
 	public event Action<JSONNode> onFetch = loadData => {};
 	/**
 	 * Called when a page fails to load.
@@ -203,6 +213,64 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 	 * Use QueuePageReplacer to inject a custom error page; you might also choose to try reloading once or twice.
 	 */
 	public event Action onSadTab = () => {};
+	/**
+	 * Called after the browser's texture/image data is updated.
+	 */
+	public event Action onTextureUpdated = () => {};
+
+	/// <summary>
+	/// Called when the browser's nav state changes.
+	/// Presently these are considered nav state changes, but other things may be added in the future:
+	///   - URL change
+	///   - canGoForward/Back change
+	///   - loading started or completed
+	/// </summary>
+	public event Action onNavStateChange = () => {};
+
+	/**
+	 * Called when a download is started.
+	 * See BrowserNative.ChangeType.CHT_DOWNLOAD_STARTED for a list and explanation of
+	 * the elements in the JSON object.
+	 *
+	 * If a handler is given it should call DownloadCommand() to start or cancel the download (eventually).
+	 * Once a download is started onDownloadStatus will be called from time-to-time. Additionally, you can use
+	 * DownloadCommand to cancel, pause, or resume a running download.
+	 *
+	 * If this is null, no downloading will happen.
+	 */
+	public Action<int, JSONNode> onDownloadStarted = null;
+
+	/**
+	 * Called when a download has a status update.
+	 * See BrowserNative.ChangeType.CHT_DOWNLOAD_STATUS for a list and explanation of
+	 * the elements in the JSON object.
+	 *
+	 * NB: You may get status reports on downloads that haven't triggered onDownloadStarted yet.
+	 */
+	public event Action<int, JSONNode> onDownloadStatus = (downloadId, info) => {};
+
+	/**
+	 * Called when the element in the page with keyboard focus changes.
+	 * If tagName == "", then focus has been lost.
+	 */
+	public event Action<string, bool, string> onNodeFocus = (tagName, editable, value) => {};
+
+	/// <summary>
+	/// Called when the browser (as a whole) gains/loses keyboard or mouse focus.
+	/// </summary>
+	public event Action<bool, bool> onBrowserFocus = (mouseFocused, keyboardFocused) => {};
+
+	[HideInInspector]
+	public readonly BrowserFocusState focusState = new BrowserFocusState();
+
+	/// <summary>
+	/// Called when any browser is created.
+	/// </summary>
+	public static event Action<Browser> onAnyBrowserCreated = browser => {};
+	/// <summary>
+	/// Called when any browser is destroyed.
+	/// </summary>
+	public static event Action<Browser> onAnyBrowserDestroyed = browser => {};
 
 
 	private BrowserInput browserInput;
@@ -211,6 +279,10 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 	private bool skipNextLoad;
 	/** There may be a short moment between requesting a URL and when IsLoadedRaw turns false. We use this flag to help cope. */
 	private bool loadPending;
+
+	private BrowserNavState navState = new BrowserNavState();
+
+	private bool newWindowHandlerSet = false;
 
 	/**
 	 * This will sometimes contain an inner Browser that handles tasks such as
@@ -225,17 +297,27 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 
 		browserInput = new BrowserInput(this);
 
+		if (!newWindowHandlerSet) {
+			//(if another component calls SetNewWindowHandler in its Awake, we'll overwrite that
+			//so only do this if it's not been called yet)
+			SetNewWindowHandler(newWindowAction == NewWindowAction.NewBrowser ? NewWindowAction.Ignore : newWindowAction, null);
+		}
+
 		onNativeReady += id => {
 			if (!uiHandlerAssigned) {
 				var meshCollider = GetComponent<MeshCollider>();
-				if (meshCollider) UIHandler = ClickMeshBrowserUI.Create(meshCollider);
+				if (meshCollider) {
+					var ui = gameObject.AddComponent<PointerUIMesh>();
+					gameObject.AddComponent<CursorRendererOS>();
+					UIHandler = ui;
+				}
 			}
 
 			Resize(_width, _height);
 
 			Zoom = _zoom;
 
-			if (!string.IsNullOrEmpty(_url)) Url = _url;
+			if (!isPopup && !string.IsNullOrEmpty(_url)) Url = _url;
 		};
 
 		onConsoleMessage += (message, source) => {
@@ -266,6 +348,8 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 				CallFunction("showCrash");
 			}, -1000);
 		};
+
+		onAnyBrowserCreated(this);
 	}
 
 	/** Returns true if the browser is ready to take orders. Most actions will be internally delayed until it is. */
@@ -284,7 +368,11 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 		} else {
 			BrowserNative.ReadyFunc func = null;
 			func = id => {
-				callback();
+				try {
+					callback();
+				} catch (Exception ex) {
+					Debug.LogException(ex);
+				}
 				onNativeReady -= func;
 			};
 			onNativeReady += func;
@@ -309,8 +397,10 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 	 * Sets up a new native browser.
 	 * If newBrowserId is zero, allocates a new browser and sets it up.
 	 * If newBrowserId is nonzero, takes ownership of that allocated browser and sets it up.
+	 * 
+	 * Internal use only.
 	 */
-	private void RequestNativeBrowser(int newBrowserId = 0) {
+	internal void RequestNativeBrowser(int newBrowserId = 0) {
 		if (browserId != 0 || browserIdRequested) return;
 
 		browserIdRequested = true;
@@ -325,15 +415,16 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 		int newId;
 		if (newBrowserId == 0) {
 			var settings = new BrowserNative.ZFBSettings() {
-				bgR = backgroundColor.r,
-				bgG = backgroundColor.g,
-				bgB = backgroundColor.b,
-				bgA = backgroundColor.a,
+				bgR = baseColor.r,
+				bgG = baseColor.g,
+				bgB = baseColor.b,
+				bgA = baseColor.a,
 				offscreen = 1,
 			};
 			newId = BrowserNative.zfb_createBrowser(settings);
 		} else {
 			newId = newBrowserId;
+			isPopup = true;//don't nav to our to URL, it will be loaded by the backend
 		}
 
 		unsafeBrowserId = newId;
@@ -417,7 +508,11 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 		thingsToRemember.Add(changeCall);
 		BrowserNative.zfb_registerChangeCallback(newId, changeCall);
 
-		BrowserNative.DisplayDialogFunc dialogCall = (id, type, text, promptText, url) => {
+		BrowserNative.DisplayDialogFunc dialogCall = (id, type, textPtr, promptTextPtr, urlPtr) => {
+			var text = Util.PtrToStringUTF8(textPtr);
+			var promptText = Util.PtrToStringUTF8(promptTextPtr);
+			//var url = Util.PtrToStringUTF8(urlPtr);
+
 			lock (thingsToDo) thingsToDo.Add(() => {
 				CreateDialogHandler();
 				dialogHandler.HandleDialog(type, text, promptText);
@@ -441,42 +536,6 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 		thingsToRemember.Add(contextCall);
 		BrowserNative.zfb_registerContextMenuCallback(newId, contextCall);
 
-		BrowserNative.NewWindowFunc popupCall = (int id, IntPtr urlPtr, bool userInvoked, int possibleId, ref BrowserNative.ZFBSettings possibleSettings) => {
-			if (!userInvoked) {
-				return BrowserNative.NewWindowAction.NWA_IGNORE;
-			}
-
-			switch (newWindowAction) {
-				default:
-				case NewWindowAction.Ignore:
-					return BrowserNative.NewWindowAction.NWA_IGNORE;
-				case NewWindowAction.Redirect:
-					return BrowserNative.NewWindowAction.NWA_REDIRECT;
-				case NewWindowAction.NewBrowser:
-					if (NewWindowHandler != null) {
-						possibleSettings.bgR = backgroundColor.r;
-						possibleSettings.bgG = backgroundColor.g;
-						possibleSettings.bgB = backgroundColor.b;
-						possibleSettings.bgA = backgroundColor.a;
-
-						lock (thingsToDo) {
-							thingsToDo.Add(() => {
-								var newBrowser = NewWindowHandler.CreateBrowser(this);
-								newBrowser.RequestNativeBrowser(possibleId);
-							});
-							return BrowserNative.NewWindowAction.NWA_NEW_BROWSER;
-						}
-					} else {
-						Debug.LogError("Missing NewWindowHandler, can't open new window", this);
-						return BrowserNative.NewWindowAction.NWA_IGNORE;
-					}
-				case NewWindowAction.NewWindow:
-					return BrowserNative.NewWindowAction.NWA_NEW_WINDOW;
-			}
-		};
-		thingsToRemember.Add(popupCall);
-		BrowserNative.zfb_registerPopupCallback(newId, popupCall);
-
 		BrowserNative.ConsoleFunc consoleCall = (id, message, source, line) => {
 			lock (thingsToDo) thingsToDo.Add(() => {
 				onConsoleMessage(message, source + ":" + line);
@@ -498,6 +557,23 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 		};
 		thingsToRemember.Add(readyCall);
 		BrowserNative.zfb_setReadyCallback(newId, readyCall);
+
+		BrowserNative.NavStateFunc navStateCall = (id, back, forward, loading, urlRaw) => {
+			var url = Util.PtrToStringUTF8(urlRaw);
+
+			lock (thingsToDo) thingsToDo.Add(() => {
+				navState.canGoBack = back;
+				navState.canGoForward = forward;
+				navState.loading = loading;
+				navState.url = url;
+
+				_url = url;//update the inspector
+
+				onNavStateChange();
+			});
+		};
+		thingsToRemember.Add(navStateCall);
+		BrowserNative.zfb_registerNavStateCallback(newId, navStateCall);
 	}
 
 	protected void OnItemChange(BrowserNative.ChangeType type, string arg1) {
@@ -510,7 +586,9 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 				//handled directly on the calling thread, nothing to do here
 				break;
 			case BrowserNative.ChangeType.CHT_FETCH_FINISHED:
+#pragma warning disable 618
 				onFetch(JSONNode.Parse(arg1));
+#pragma warning restore 618
 				break;
 			case BrowserNative.ChangeType.CHT_FETCH_FAILED:
 				onFetchError(JSONNode.Parse(arg1));
@@ -537,6 +615,28 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 			case BrowserNative.ChangeType.CHT_SAD_TAB:
 				onSadTab();
 				break;
+			case BrowserNative.ChangeType.CHT_DOWNLOAD_STARTED: {
+				var info = JSONNode.Parse(arg1);
+				if (onDownloadStarted != null) {
+					onDownloadStarted(info["id"], info);
+				} else {
+					DownloadCommand(info["id"], BrowserNative.DownloadAction.Cancel);
+				}
+				break;
+			}
+			case BrowserNative.ChangeType.CHT_DOWNLOAD_STATUS: {
+				var info = JSONNode.Parse(arg1);
+				onDownloadStatus(info["id"], info);
+				break;
+			}
+			case BrowserNative.ChangeType.CHT_FOCUSED_NODE: {
+				var info = JSONNode.Parse(arg1);
+				focusState.focusedTagName = info["TagName"];
+				focusState.focusedNodeEditable = info["editable"];
+				onNodeFocus(info["tagName"], info["editable"], info["value"]);
+				break;
+			}
+
 		}
 	}
 
@@ -562,6 +662,7 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 	 */
 	protected void CheckSanity() {
 		if (browserId == 0) throw new InvalidOperationException("No native browser allocated");
+		if (!BrowserNative.SymbolsLoaded) throw new InvalidOperationException("Browser .dll not loaded");
 	}
 
 	/**
@@ -580,57 +681,32 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 
 	protected void OnDisable() {
 		//note: if you want a browser to stop, load a different page or destroy it
-		//The browser will continue to run until we are destroyed.
+		//The browser will continue to run until destroyed.
 	}
 
 	protected void OnDestroy() {
+		onAnyBrowserDestroyed(this);
+
 		if (browserId == 0) return;
 
 		if (dialogHandler) DestroyImmediate(dialogHandler.gameObject);
 		dialogHandler = null;
 
-		BrowserNative.zfb_destoryBrowser(browserId);
+		if (BrowserNative.SymbolsLoaded) BrowserNative.zfb_destroyBrowser(browserId);
 		if (textureIsOurs) Destroy(texture);
 
 		browserId = 0;
 		texture = null;
 	}
 
-	protected void OnApplicationQuit() {
-		//According to http://docs.unity3d.com/Manual/ExecutionOrder.html,
-		//OnDisable will be called before this. Experience shows this to be not so much the case.
-		//Therefore, we will forcefully call OnDestroy()
-		OnDestroy();
-
-		if (BrowserNative.zfb_numBrowsers() == 0) {
-			//last one out, turn off the lights
-
-			//beforeunload windows won't fully disappear without ticking the message loop
-			//Ideally, we'd just keep ticking it, but we are stopping.
-			for (int i = 0; i < 10; ++i) {
-				BrowserNative.zfb_tick();
-				System.Threading.Thread.Sleep(10);
-			}
-
-
-			#if UNITY_EDITOR
-			//You can't re-init CEF, so if we are the editor, never shut it down.
-			#else
-			BrowserNative.UnloadNative();
-			#endif
-		}
-	}
-
 	public string Url {
-		/** Gets the current browser URL. */
+		/**
+		 * Gets the current browser URL.
+		 * Note that if you just set the URL and the page hasn't loaded, this won't return the new value.
+		 * It always returns the current URL of the browser as we are most recently aware of.
+		 */
 		get {
-			if (!IsReady) return "";
-			CheckSanity();
-
-			var urlData = BrowserNative.zfb_getURL(browserId);
-			var ret = Marshal.PtrToStringAnsi(urlData);
-			BrowserNative.zfb_free(urlData);
-			return ret;
+			return navState.url;
 		}
 		/** Shortcut for LoadURL(value, true) */
 		set {
@@ -640,7 +716,7 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 
 	/**
 	 * Navigates to the given URL. If force is true, it will go there right away.
-	 * If force is false, the pages that wish to can prompt the user and possibly cancel the
+	 * If force is false, pages that wish to can prompt the user and possibly cancel the
 	 * navigation.
 	 */
 	public void LoadURL(string url, bool force) {
@@ -664,7 +740,8 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 
 	/**
 	 * Loads the given HTML string as if it were the given URL.
-	 * Use http://-like porotocols or else things may not work right.
+	 * For the URL use http://-like porotocols or else things may not work right. (In particular, the backend
+	 * might sanitize it to "about:blank" and things won't work right because it appears a page isn't loaded.)
 	 *
 	 * Note that, instead of using this, you can also load "data:" URIs into this.Url.
 	 * This allows pretty much any type of content to be loaded as the whole page.
@@ -687,6 +764,53 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 		}
 
 		BrowserNative.zfb_goToHTML(browserId, html, url);
+	}
+
+	/// <summary>
+	/// Sets how new popup windows are handled.
+	/// </summary>
+	/// <param name="action"></param>
+	/// <param name="newWindowHandler">
+	/// If action==NewBrowser, this handler will be invoked to create the browser in the scene.
+	/// May be null otherwise.
+	/// </param>
+	public void SetNewWindowHandler(NewWindowAction action, INewWindowHandler newWindowHandler) {
+		newWindowHandlerSet = true;
+		if (action == NewWindowAction.NewBrowser && newWindowHandler == null) {
+			throw new Exception("No new window handler supplied for NewBrowser action");
+		}
+
+		if (DeferUnready(() => SetNewWindowHandler(action, newWindowHandler))) return;
+
+		var settings = new BrowserNative.ZFBSettings() {
+			bgR = baseColor.r,
+			bgG = baseColor.g,
+			bgB = baseColor.b,
+			bgA = baseColor.a,
+		};
+
+		BrowserNative.NewWindowFunc cb = (id, newBrowserId, urlPtr) => {
+			#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+				var url = Util.PtrToStringUTF8(urlPtr);
+				if (url == "about:inspector" || newWindowAction == NewWindowAction.NewWindow) lock (thingsToDo) {
+					thingsToDo.Add(() => {
+						PopUpBrowser.Create(newBrowserId);
+					});
+					return;
+				}
+			#endif
+			
+			lock (thingsToDo) {
+				thingsToDo.Add(() => {
+					var newBrowser = newWindowHandler.CreateBrowser(this);
+					newBrowser.RequestNativeBrowser(newBrowserId);
+				});
+			}
+		};
+
+		thingsToRemember.Add(cb);
+
+		BrowserNative.zfb_registerPopupCallback(browserId, (BrowserNative.NewWindowAction)action, settings, cb);
 	}
 
 	/**
@@ -721,9 +845,7 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 
 	public bool CanGoBack {
 		get {
-			if (!IsReady) return false;
-			CheckSanity();
-			return BrowserNative.zfb_canNav(browserId, -1);
+			return navState.canGoBack;
 		}
 	}
 
@@ -735,9 +857,7 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 
 	public bool CanGoForward {
 		get {
-			if (!IsReady) return false;
-			CheckSanity();
-			return BrowserNative.zfb_canNav(browserId, 1);
+			return navState.canGoForward;
 		}
 	}
 
@@ -753,8 +873,7 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 	 */
 	public bool IsLoadingRaw {
 		get {
-			if (!IsReady) return false;
-			return BrowserNative.zfb_isLoading(browserId);
+			return navState.loading;
 		}
 	}
 
@@ -765,7 +884,7 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 	public bool IsLoaded {
 		get {
 			if (!IsReady || loadPending) return false;
-			if (BrowserNative.zfb_isLoading(browserId)) return false;
+			if (navState.loading) return false;
 
 			var url = Url;
 			var urlIsBlank = string.IsNullOrEmpty(url) || url == "about:blank";
@@ -780,14 +899,16 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 		BrowserNative.zfb_changeLoading(browserId, BrowserNative.LoadChange.LC_STOP);
 	}
 
+	/**
+	 * Reloads the current page.
+	 * If force is true, the cache will be skipped.
+	 */
 	public void Reload(bool force = false) {
 		if (!IsReady) return;
 		CheckSanity();
 		if (force) BrowserNative.zfb_changeLoading(browserId, BrowserNative.LoadChange.LC_FORCE_RELOAD);
 		else BrowserNative.zfb_changeLoading(browserId, BrowserNative.LoadChange.LC_RELOAD);
 	}
-
-
 
 
 	/**
@@ -829,6 +950,8 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 		afterResize(texture);
 
 		if (overlay) overlay.Resize(Texture);
+
+		forceNextRender = true;
 	}
 
 	/**
@@ -838,6 +961,22 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 		var newTexture = new Texture2D(width, height, TextureFormat.ARGB32, generateMipmap);
 		if (generateMipmap) newTexture.filterMode = FilterMode.Trilinear;
 		newTexture.wrapMode = TextureWrapMode.Clamp;
+
+		//Clear it to a color:
+		var pixelCount = width * height;
+		if (newTexture.mipmapCount > 1) {
+			//generateMipmap doesn't tell us how many or how big, so quick hack to look it up:
+			for (int i = 1; i < newTexture.mipmapCount; i++) {
+				pixelCount += newTexture.GetPixels32(i).Length;
+			}
+		}
+		BrowserNative.LoadSymbols();
+		var pixelData = BrowserNative.zfb_flatColorTexture(
+			pixelCount, baseColor.r, baseColor.g, baseColor.b, baseColor.a
+		);
+		newTexture.LoadRawTextureData(pixelData, pixelCount * 4);
+		newTexture.Apply();
+		BrowserNative.zfb_free(pixelData);
 
 		_Resize(newTexture, true);
 	}
@@ -929,7 +1068,7 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 
 		var sep = "";
 		foreach (var arg in arguments) {
-			js += sep + arg.AsJSON;
+			js += sep + (arg ?? JSONNode.NullNode).AsJSON;
 			sep = ", ";
 		}
 
@@ -993,7 +1132,7 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 			return;//not ready yet or not loaded
 		}
 
-		CheckSanity();
+		if (!BrowserNative.SymbolsLoaded) return;
 
 		HandleInput();
 	}
@@ -1002,12 +1141,15 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 		//Note: we use LateUpdate here in hopes that commands issued during (anybody's) Update()
 		//will have a better chance of being completed before we push the render
 
-		if (lastUpdateFrame != Time.frameCount) {
+		if (lastUpdateFrame != Time.frameCount && BrowserNative.NativeLoaded) {
 			Profiler.BeginSample("Browser.NativeTick");
 			BrowserNative.zfb_tick();
 			Profiler.EndSample();
 			lastUpdateFrame = Time.frameCount;
 		}
+
+
+		if (browserId == 0) return;
 
 		ProcessCallbacks();
 
@@ -1020,10 +1162,10 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 		if (EnableRendering) Render();
 	}
 
-	/** Cached working memory for pixel operations */
-	private Color32[] pixelData;
+	private Color32[] colorBuffer = null;
 
 	protected void Render() {
+		if (!BrowserNative.SymbolsLoaded) return;
 		CheckSanity();
 
 		BrowserNative.RenderData renderData;
@@ -1036,42 +1178,44 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 			if (renderData.pixels == IntPtr.Zero) return;//no changes
 
 			if (renderData.w != texture.width || renderData.h != texture.height) {
-				//Mismatch, can happen, for example, when we resize and ask for a new image before the IPC layer gets back to us.
+				//Mismatch. Can happen, for example, when we resize and ask for a new image before the IPC layer gets back to us.
 				return;
 			}
+		}
+		Profiler.EndSample();
 
-			if (pixelData == null || pixelData.Length != renderData.w * renderData.h) {
-				pixelData = new Color32[renderData.w * renderData.h];
+
+		if (texture.mipmapCount == 1) {
+			Profiler.BeginSample("Browser.UpdateTexture.LoadRawTextureData", this);
+			texture.LoadRawTextureData(renderData.pixels, renderData.w * renderData.h * 4);
+			Profiler.EndSample();
+		} else {
+			//whelp, this is gonna be slow.
+			//First, having Unity calculate mipmaps is slow. Second, we can't just LoadRawTextureData because it doesn't 
+			//contain mip levels. Third, LoadRawTextureData and Color32 have different in-memory byte orders (for our texture type).
+
+			if (colorBuffer == null || colorBuffer.Length != renderData.w * renderData.h) {
+				colorBuffer = new Color32[renderData.w * renderData.h];
 			}
 
-		}
-		Profiler.EndSample();
-
-		/*
-		Getting the frame data from CEF to the GPU is the biggest framerate bottleneck.
-
-		This memcpy is unfortunate, and with more work we could just upload directly to the GPU texture from C++.
-		That said, the profiler tells us:
-			- With mipmaps on, GPUUpload takes an order of magnitude more time than DataCopy
-			- With mipmaps off, GPUUpload takes 1-2x the time DataCopy does.
-			- On my machine with a quite large 2048x2048 texture constantly updating, both weigh in at about ~10ms/frame
-			  without mipmap generation.
-		*/
-
-		Profiler.BeginSample("Browser.UpdateTexture.DataCopy", this);
-		{
-			GCHandle handle = GCHandle.Alloc(pixelData, GCHandleType.Pinned);
-			BrowserNative.zfb_memcpy(handle.AddrOfPinnedObject(), renderData.pixels, pixelData.Length * 4);
+			Profiler.BeginSample("Browser.UpdateTexture.CopyData", this);
+			var handle = GCHandle.Alloc(colorBuffer, GCHandleType.Pinned);
+			BrowserNative.zfb_copyToColor32(renderData.pixels, handle.AddrOfPinnedObject(), renderData.w * renderData.h);
 			handle.Free();
-		}
-		Profiler.EndSample();
+			Profiler.EndSample();
 
-		Profiler.BeginSample("Browser.UpdateTexture.GPUUpload", this);
+			Profiler.BeginSample("Browser.UpdateTexture.SetPixels32", this);
+			texture.SetPixels32(colorBuffer);
+			Profiler.EndSample();
+		}
+
+		Profiler.BeginSample("Browser.UpdateTexture.Apply", this);
 		{
-			texture.SetPixels32(pixelData);
 			texture.Apply(true);
 		}
 		Profiler.EndSample();
+
+		onTextureUpdated();
 	}
 
 	/**
@@ -1099,16 +1243,20 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 		if (DeferUnready(() => SetOverlay(overlayBrowser))) return;
 		if (overlayBrowser && overlayBrowser.DeferUnready(() => SetOverlay(overlayBrowser))) return;
 
-		BrowserNative.zfb_setOverlay(browserId, overlayBrowser ? overlayBrowser.browserId : 0);
-		overlay = overlayBrowser;
+		if (!overlayBrowser) {
+			BrowserNative.zfb_setOverlay(browserId, 0);
+			overlay = null;
+		} else {
+			overlay = overlayBrowser;
 
-		if (!overlay) return;
-
-		if (
-			!overlay.Texture ||
-			(overlay.Texture.width != Texture.width || overlay.Texture.height != Texture.height)
-		) {
-			overlay.Resize(Texture);
+			if (
+				!overlay.Texture ||
+				(overlay.Texture.width != Texture.width || overlay.Texture.height != Texture.height)
+			) {
+				overlay.Resize(Texture);
+			}
+			
+			BrowserNative.zfb_setOverlay(browserId, overlayBrowser.browserId);
 		}
 	}
 
@@ -1117,6 +1265,14 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 		CheckSanity();
 
 		browserInput.HandleInput();
+	}
+
+	protected void OnApplicationFocus(bool focus) {
+		if (!focus && browserInput != null) browserInput.HandleFocusLoss();
+	}
+
+	protected void OnApplicationPause(bool paused) {
+		if (paused && browserInput != null) browserInput.HandleFocusLoss();
 	}
 
 	/**
@@ -1153,6 +1309,74 @@ For ""New Browser"" to work, you need to assign NewWindowHandler to a handler of
 			UIHandler.BrowserCursor.SetCustomCursor(tex, new Vector2(hx, hy));
 			DestroyImmediate(tex);
 		}
+	}
+
+	/**
+	 * Take an action on a download.
+	 *
+	 * At the outset:
+	 *   Begin: Starts the download. Saves to the given file if given. If fileName is null, the user will be prompted.
+	 *   Cancel: Does nothing with a download.
+	 *
+	 * After starting a download:
+	 *   Pause, Cancel, Resume: Does what it says on the tin.
+	 *
+	 * Once a download is finished or canceled it is not valid to call this function for that download any more.
+	 *
+	 * fileName is ignored except when beginning a download.
+	 */
+	public void DownloadCommand(int downloadId, BrowserNative.DownloadAction action, string fileName = null) {
+		CheckSanity();
+
+		BrowserNative.zfb_downloadCommand(browserId, downloadId, action, fileName);
+	}
+
+	/// <summary>
+	/// Injects the given unicode text to the browser as if it had been typed.
+	/// (No key press events are generated.)
+	/// </summary>
+	/// <param name="text"></param>
+	public void TypeText(string text) {
+		for (int i = 0; i < text.Length; i++) {
+			var ev = new Event() {
+				type = EventType.KeyDown,
+				keyCode = 0,
+				character = text[i],
+			};
+			browserInput.extraEventsToInject.Add(ev);
+		}
+	}
+
+	/// <summary>
+	/// Sends key presses/releases to the browser.
+	/// </summary>
+	/// <param name="key"></param>
+	/// <param name="action"></param>
+	public void PressKey(KeyCode key, KeyAction action = KeyAction.PressAndRelease) {
+		if (action == KeyAction.Press || action == KeyAction.PressAndRelease) {
+			var ev = new Event() {
+				type = EventType.KeyDown,
+				keyCode = key,
+				character = (char)0,
+			};
+			browserInput.extraEventsToInject.Add(ev);
+		}
+
+		if (action == KeyAction.Release || action == KeyAction.PressAndRelease) {
+			var ev = new Event() {
+				type = EventType.KeyUp,
+				keyCode = key,
+				character = (char)0,
+			};
+			browserInput.extraEventsToInject.Add(ev);
+		}
+
+	}
+
+	internal void _RaiseFocusEvent(bool mouseIsFocused, bool keyboardIsFocused) {
+		focusState.hasMouseFocus  = mouseIsFocused;
+		focusState.hasKeyboardFocus = keyboardIsFocused;
+		onBrowserFocus(mouseIsFocused, keyboardIsFocused);
 	}
 
 }

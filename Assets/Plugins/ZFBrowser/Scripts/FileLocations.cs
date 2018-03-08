@@ -93,12 +93,21 @@ public static class FileLocations {
 
 #elif UNITY_STANDALONE_WIN
 		var resourcesPath = Application.dataPath + "/Plugins";
+
+		var logFile = Application.dataPath + "/output_log.txt";
+		#if UNITY_2017_2_OR_NEWER
+			var appLowDir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "Low/" + Application.companyName + "/" + Application.productName;
+			if (Directory.Exists(appLowDir)) {
+				logFile = appLowDir + "/output_log.txt";
+			}
+		#endif
+
 		return new CEFDirs() {
 			resourcesPath = resourcesPath,
-			binariesPath = Application.dataPath + "/../",
+			binariesPath = resourcesPath,
 			localesPath = resourcesPath + "/locales",
 			subprocessFile = resourcesPath + "/" + SlaveExecutable + ".exe",
-			logFile = Application.dataPath + "/output_log.txt",
+			logFile = logFile,
 		};
 #elif UNITY_STANDALONE_LINUX
 		var resourcesPath = Application.dataPath + "/Plugins";
