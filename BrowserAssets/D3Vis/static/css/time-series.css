@@ -1,0 +1,14 @@
+
+.axis--x {
+	stroke: #fcfcfcbf
+}
+
+.axis--x path {
+  display: none;  
+}
+
+.line {
+  fill: none;
+  stroke: #d6d8d9c2;
+  stroke-width: 1.5px;
+}

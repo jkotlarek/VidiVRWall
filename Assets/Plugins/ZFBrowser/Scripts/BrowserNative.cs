@@ -108,6 +108,9 @@ public static class BrowserNative {
 
 		//"--zf-log-cef-verbose",
 		//"--zf-log-internal", 
+
+        //Allow cross origin requests
+        "--allow-file-access-from-files",
 	};
 
 	/**
