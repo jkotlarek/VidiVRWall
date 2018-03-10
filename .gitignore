@@ -34,4 +34,4 @@ sysinfo.txt
 *.unitypackage
 
 # Main data is too big right now. Will GFS later
-terrorism.tsv
+#terrorism.tsv
