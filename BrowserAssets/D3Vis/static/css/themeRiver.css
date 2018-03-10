@@ -1,0 +1,42 @@
+.rect {
+    width: 20px;
+    height: 600px;
+}
+
+div.tooltip {
+    position: absolute;
+    text-align: left;
+    width: 100px;
+    height: 50px;
+    padding: 10px;
+    font: 10px sans-serif;
+    background: lightblue;
+    border: 0px;
+    border-radius: 8px;
+    pointer-events: none;
+}
+
+.axis {
+    fill: none;
+    stroke: #e9e9eadb;
+    stroke-width: 2px;
+}
+
+path, line {
+    stroke: #e9e9eadb;
+}
+
+div.dashboard {
+    position: relative;
+    top: 10px;
+    right: 10px;
+    width: 250px;
+    height: 200px;
+    padding: 20px;
+    font: 10px sans-serif;
+    background:white;
+    border: 1px solid black;
+    border-radius: 8px;
+    pointer-events: none;
+
+}

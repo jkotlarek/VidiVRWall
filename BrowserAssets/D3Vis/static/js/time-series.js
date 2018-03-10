@@ -31,7 +31,6 @@ nest_vars = function(data,vars,types,timeType) {
      }).entries(data);
 } 
 
-
 var x = d3.scaleTime().range([0, width]),
     y = d3.scaleLinear().range([height, 0]),
     z = d3.scaleOrdinal(d3.schemeCategory10);
@@ -125,12 +124,6 @@ build_filters = function(){
         });
   });
 }
-
-
-
-
-
-
 
 plot_lines = function(cols,types,timeType) {
 

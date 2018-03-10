@@ -1,7 +1,5 @@
 
 // Load Data permanently
-
-d3.tsv("../data/terrorism.tsv",function(terrorism){
 var select = d3.select('body').append('select')
     .attr("id","field_select")
     .on('change',function(){
@@ -10,13 +8,13 @@ var select = d3.select('body').append('select')
 
 var options = select
   .selectAll('option')
-  .data(terrorism.columns).enter()
+  .data(num_fields).enter()
   .append('option')
     .text(function (d) { return d; })
     .attr("selected", function(d){
        return d === "population";
     })
-});
+
 
 var format = d3.format(",");
 

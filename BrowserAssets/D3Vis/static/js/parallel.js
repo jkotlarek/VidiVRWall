@@ -18,8 +18,6 @@ var svg = d3.select("svg")
     .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
 
-d3.tsv("../data/terrorism.tsv",function(terrorism){
-
 var select = d3.select('body').append('select')
     .attr("id","field_select")
     .on('change',function(){
@@ -28,27 +26,35 @@ var select = d3.select('body').append('select')
 
 var options = select
   .selectAll('option')
-  .data(terrorism.columns).enter()
+  .data(num_fields).enter()
   .append('option')
     .text(function (d) { return d; })
     .attr("selected", function(d){
        return d === "population";
     })
-});
 
 
-
+var cols = ['nperps','suicide','nkill','population'];
 var data = [];
 d3.tsv("../data/terrorism.tsv", function(error, cars) {
 
   var temp = 10;
-
-
   data.push(cars);
+
+  var df = [];
+  cars.forEach(function(x){
+    var temp = {'name':x.country_txt};
+    cols.forEach(function(y){
+      temp[y] = +x[y];
+    });
+    df.push(temp);
+  })
+  df.columns = ['name'].concat(cols);
+
   // Extract the list of dimensions and create a scale for each.
-  x.domain(dimensions = d3.keys(cars[0]).filter(function(d) {
+  x.domain(dimensions = d3.keys(df[0]).filter(function(d) {
     return d != "name" && (y[d] = d3.scaleLinear()
-        .domain(d3.extent(cars, function(p) { return +p[d]; }))
+        .domain(d3.extent(df, function(p) { return +p[d]; }))
         .range([height, 0]));
   }));
 
@@ -56,7 +62,7 @@ d3.tsv("../data/terrorism.tsv", function(error, cars) {
   background = svg.append("g")
       .attr("class", "background")
     .selectAll("path")
-      .data(cars)
+      .data(df)
     .enter().append("path")
       .attr("d", path);
 
@@ -64,7 +70,7 @@ d3.tsv("../data/terrorism.tsv", function(error, cars) {
   foreground = svg.append("g")
       .attr("class", "foreground")
     .selectAll("path")
-      .data(cars)
+      .data(df)
     .enter().append("path")
       .attr("d", path);
 
