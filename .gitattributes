@@ -11,3 +11,4 @@ terrorism.tsv filter=lfs diff=lfs merge=lfs -text
 *.tga filter=lfs diff=lfs merge=lfs -text
 BrowserAssets/D3Vis/data/terrorism.tsv filter=lfs diff=lfs merge=lfs -text
 Assets/StreamingAssets/D3Vis/data/terrorism.tsv filter=lfs diff=lfs merge=lfs -text
+terrorism.* filter=lfs diff=lfs merge=lfs -text
