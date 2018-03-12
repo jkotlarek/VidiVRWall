@@ -36,7 +36,7 @@ var options = select
 
 var cols = ['nperps','suicide','nkill','population'];
 var data = [];
-d3.tsv("../data/terrorism.tsv", function(error, cars) {
+d3.tsv("data/terrorism.tsv", function(error, cars) {
 
   var temp = 10;
   data.push(cars);
