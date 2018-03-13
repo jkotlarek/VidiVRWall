@@ -11,7 +11,7 @@ svg {
 
 .foreground path {
   fill: none;
-  stroke: steelblue;
+  stroke: #3a76f6ba;
 }
 
 .brush .extent {
@@ -28,5 +28,23 @@ svg {
 }
 
 .axis text {
-  text-shadow: 0 1px 0 #fff, 1px 0 0 #fff, 0 -1px 0 #fff, -1px 0 0 #fff;
+  text-shadow: 0 1px 0 #48ededd1, 1px 0 0 #131313, 0 -1px 0 #504e4ecf, -1px 0 0 #070707a6;
+  font-size: 14px;
+  stroke: white;
+}
+
+text.title {
+  text-anchor: middle;
+  stroke: white;
+  font-size: 16px;
+  text-shadow: 0 1px 0 #48ededd1, 1px 0 0 #131313, 0 -1px 0 #504e4ecf, -1px 0 0 #070707a6;
+}
+
+rect.overlay {
+  stroke: #e3e7eab5;
+  fill: #919395b3;
+}
+
+path.active {
+  stroke: #ff6605e3;
 }

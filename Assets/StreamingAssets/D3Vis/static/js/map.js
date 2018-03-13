@@ -50,7 +50,7 @@ svg.call(tip);
 plot_map = function(){
   queue()
       .defer(d3.json, "data/world_countries.json")
-      .defer(d3.tsv, "data/terrorism.tsv")
+      .defer(d3.tsv, "data/terrorism_small.tsv")
       .await(ready);
 }
 

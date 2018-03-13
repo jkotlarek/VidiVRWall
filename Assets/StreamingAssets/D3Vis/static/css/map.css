@@ -6,10 +6,11 @@
 
     /* Tooltip CSS */
     .d3-tip {
-    line-height: 1.5;
-    font-weight: 400;
+    line-height: 2;
+    font-weight: 700;
     font-family:"avenir next", Arial, sans-serif;
     padding: 6px;
+    font-size: 20px;
     background: rgba(0, 0, 0, 0.6);
     color: #FFA500;
     border-radius: 1px;
@@ -20,7 +21,7 @@
     .d3-tip:after {      
       box-sizing: border-box;
       display: inline;
-      font-size: 8px;
+      font-size: 15px;
       width: 100%;
       line-height: 1.5;
       color: rgba(0, 0, 0, 0.6);

@@ -9,3 +9,8 @@
   stroke-width: 1.5px;
   cursor: pointer;
 }
+
+text.legend {
+	font-size: 18px;
+	stroke-width: 1.4px;
+}

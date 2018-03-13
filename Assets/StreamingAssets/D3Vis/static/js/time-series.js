@@ -61,7 +61,7 @@ build_filters = function(){
   d3.selectAll('.field_select').remove();
   d3.select('.btn-submit').remove();
 
-  d3.tsv("../data/terrorism.tsv",function(terrorism){
+  d3.tsv("../data/terrorism_small.tsv",function(terrorism){
     var types = ['Total','Count','Avg'];
     var num = d3.select("#num_fields").node().value;
     for (var j=0; j<num; j++){
@@ -127,7 +127,7 @@ build_filters = function(){
 
 plot_lines = function(cols,types,timeType) {
 
-  d3.tsv("../data/terrorism.tsv", type, function(error, terrorism) {
+  d3.tsv("../data/terrorism_small.tsv", type, function(error, terrorism) {
     if (error) throw error;
 
     

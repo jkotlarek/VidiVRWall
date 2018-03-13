@@ -6,10 +6,10 @@
 div.tooltip {
     position: absolute;
     text-align: left;
-    width: 100px;
-    height: 50px;
+    width: 300px;
+    height: 100px;
     padding: 10px;
-    font: 10px sans-serif;
+    font: 16px sans-serif;
     background: lightblue;
     border: 0px;
     border-radius: 8px;
@@ -17,9 +17,10 @@ div.tooltip {
 }
 
 .axis {
-    fill: none;
     stroke: #e9e9eadb;
     stroke-width: 2px;
+    font-size: 18px;
+    text-shadow: -1px -1px white;
 }
 
 path, line {

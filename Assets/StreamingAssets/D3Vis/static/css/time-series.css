@@ -1,14 +1,18 @@
 
 .axis--x {
-	stroke: #fcfcfcbf
+	stroke: #fcfcfcbf;
+	font-size: 20px;
+	stroke-width: 1.4px;
+	text-shadow: -1px -1px black, 1px 1px white;
 }
 
 .axis--x path {
   display: none;  
+  stroke-width: 2px;
 }
 
 .line {
   fill: none;
   stroke: #d6d8d9c2;
-  stroke-width: 1.5px;
+  stroke-width: 5px;
 }
