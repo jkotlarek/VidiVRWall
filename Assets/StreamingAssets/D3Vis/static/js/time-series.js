@@ -5,6 +5,8 @@ var svg = d3.select("svg"),
     height = svg.attr("height") - margin.top - margin.bottom,
     g = svg.append("g").attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
+var dimensions = [];
+
 var parseTime = d3.timeParse("%Y%m%d");
 var timeParser = function(time,timeType){
   if (timeType == "iyear")
@@ -14,22 +16,6 @@ var timeParser = function(time,timeType){
   if (timeType == "iday")
     return "190001"+time;
 }
-typeParser = {
-  "Total": d3.sum,
-  "Count": function(d){return d.length},
-  "Avg": d3.mean
-}
-nest_vars = function(data,vars,types,timeType) {
-  return d3.nest()
-    .key(function(d) { return timeParser(d[timeType],timeType); })
-    .rollup(function(v) { 
-      var temp = {};
-      for (var i=0; i<vars.length; i++){
-        temp[vars[i]] =  typeParser[types[i]](v, function(d) { return d[vars[i]]; })
-      }
-      return temp;
-     }).entries(data);
-} 
 
 var x = d3.scaleTime().range([0, width]),
     y = d3.scaleLinear().range([height, 0]),
@@ -41,6 +27,7 @@ var line = d3.line()
     .y(function(d) { return y(d.temperature); });
 
 
+if (false){
 var nums = [1,2,3,4,5];
 var select = d3.select('body').append('select')
     .attr("id","num_fields")
@@ -124,6 +111,59 @@ build_filters = function(){
         });
   });
 }
+}
+
+
+var timeTypes = ['iyear','imonth','iday'];
+    var select = d3.select('body').append('select')
+        .classed("field_select",true)
+        .attr("id","timeType")   
+        .selectAll('option')
+        .data(timeTypes)
+        .enter().append('option')       
+        .text(d => d);
+
+
+var select = d3.select('#select').append('select')
+    .attr("id","field_select")
+    .attr("multiple",true)    
+
+var options = select
+  .selectAll('option')  
+  .data(num_fields).enter()
+  .append('option')
+  .on('mousedown',function(e){
+        event.preventDefault();
+        var txt = d3.select(this).text();
+        d3.select(this).property('selected', !d3.select(this).property('selected'));
+        if (dimensions.includes(txt)){
+          var i = dimensions.indexOf(txt);
+          dimensions = dimensions.slice(0,i).concat(dimensions.slice(i+1,dimensions.length));
+        }else{
+          dimensions.push(txt);
+        }        
+        // svg.selectAll('g').remove()
+        // draw_parallel(data[0],dimensions);
+        timeType = d3.select("#timeType").node().value;
+        plot_lines(dimensions,Array(dimensions.length).fill('Avg'),timeType);
+    })
+    .text(function (d) { return d; })
+    .property('selected',function(d){
+       return dimensions.includes(d);
+    })
+
+  d3.select("#select")    
+    .append("button")
+    .attr("type",'button')
+    .text("Clear")
+    .on("click",function(){
+      d3.selectAll('option').property('selected',false);
+      dimensions = [];
+    })
+
+
+
+
 
 plot_lines = function(cols,types,timeType) {
 
@@ -200,3 +240,19 @@ function type(d, _, columns) {
 var cols=['nkill','population'], types=['Avg','Total'], timeType='iyear';
 plot_lines(cols,types,timeType);
 
+typeParser = {
+  "Total": d3.sum,
+  "Count": function(d){return d.length},
+  "Avg": d3.mean
+}
+nest_vars = function(data,vars,types,timeType) {
+  return d3.nest()
+    .key(function(d) { return timeParser(d[timeType],timeType); })
+    .rollup(function(v) { 
+      var temp = {};
+      for (var i=0; i<vars.length; i++){
+        temp[vars[i]] =  typeParser[types[i]](v, function(d) { return d[vars[i]]; })
+      }
+      return temp;
+     }).entries(data);
+} 

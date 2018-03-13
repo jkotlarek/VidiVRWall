@@ -1,26 +1,27 @@
-var data = [], sources = ['USA','GBR'], num_groups = 12;
+var data = [], sources = ['USA','GBR','RUS'], num_groups = 12;
 var clusters;
 
-
+var width = 900, height = 600;
 var cluster_pt = {0: -300 , 1: -150, 2: 150 ,  3: 300}
 
+var rad = 14, big_rad = 25, hover_rad = 20, hover_big_rad = 35;
 
-
-
-var svg = d3.select("svg"),
-    width = +svg.attr("width"),
-    height = +svg.attr("height");
-
-var color = d3.scaleOrdinal(d3.schemeCategory20);
+var color = d3.scaleSequential(d3.interpolatePlasma).domain([0,num_groups]);
 
 var tip = 
   d3.tip()
     .attr('class', 'd3-tip')
     .offset([-10, 0])
     .html(function(d) {
-      return "<strong>Country: </strong><span class='details'>" + d +"</span>";
+      var links = d3.selectAll('line'),
+      as_source = links.filter(c => c.source.id == d.id),
+      as_target = links.filter(c => c.target.id == d.id);
+
+      return "<strong>Country: </strong><span class='details'>" + d.id +"</span><br>"+
+             "<strong># as Source: </strong><span class='details'>" + as_source.nodes().length +"</span><br>"+
+             "<strong># as Target: </strong><span class='details'>" + as_target.nodes().length +"</span>";
     })
-svg.call(tip);
+
 
 var select = d3.select('#select').append('select')
     .attr("id","field_select")
@@ -32,7 +33,6 @@ var options = select
   .append('option')
   .on('mousedown',function(e){
         event.preventDefault();
-        simulation = d3.forceSimulation();    
         var txt = d3.select(this).text();
         d3.select(this).property('selected', !d3.select(this).property('selected'));
         if (sources.includes(txt)){
@@ -40,13 +40,12 @@ var options = select
           sources = sources.slice(0,i).concat(sources.slice(i+1,sources.length));
         }else{
           sources.push(txt);
-        }        
-        svg.selectAll('g').remove()
-        simulation = d3.forceSimulation()    
-                   .force("link", d3.forceLink().id(function(d)  { return d.id; }))
-                   .force("charge", d3.forceManyBody().strength(-150))
-                   .force("center", d3.forceCenter(width / 2, height / 2));
-        var graph = {'nodes' : data[0].nodes.slice(0), 'links': data[0].links.slice(0)};
+        }                
+        d3.select('svg').remove();
+        var graph = JSON.parse(JSON.stringify(data[0]));
+        graph.nodes.forEach(function(d){
+            delete d['x']; delete d['y']; delete d['vx']; delete d['vy'];
+        });
         graph.links = graph.links.filter(d => sources.includes(d.source));
         plot_network(graph);
     })
@@ -55,7 +54,7 @@ var options = select
        return sources.includes(d);
     })
 
-d3.select("#select")    
+d3.select("#select").append('p')  
   .append("button")
   .attr("type",'button')
   .text("Clear")
@@ -64,24 +63,39 @@ d3.select("#select")
     sources = [];
   })
 
-var simulation = d3.forceSimulation()    
-
 // Plot legend
-var start_x = 0, start_y = 60;                   
-for (var i=0; i<regions.length; i++){     
-  svg.append('text')
-     .classed('legend',true)
-     .text(regions[i].region_txt)
-     .attr('x',start_x)
-     .attr('y',start_y + i*20 + 10)
-     .style('fill',color(regions[i].region))
+plot_legend = function(svg){
+  var start_x = 0, start_y = 60;                   
+  for (var i=0; i<regions.length; i++){     
+    var this_region = regions.filter(d=>+d.region==i+1)[0];
+    svg.append('text')
+       .classed('legend',true)
+       .text(this_region.region_txt)
+       .attr('x',start_x)
+       .attr('y',start_y + i*20 + 10)
+       .attr('group',this_region.region)
+       .style('fill',color(regions[i].region))
+       .on('mouseover',function(){
+        var x = +this.getAttribute('group');
+        d3.selectAll('circle').filter(d => +d.group==x)
+          .classed('selected',true)
+          .attr('r', hover_rad)
+          .filter(d => sources.includes(d.id))
+          .attr('r', hover_big_rad)
+       })
+       .on('mouseout',function(){
+        d3.selectAll('circle').attr('r',rad)
+          .classed('selected',false)
+          .filter(d => sources.includes(d.id))
+          .attr('r', big_rad)
+       })
+  }
 }
-
 
 
 d3.json("data/terrorism_targets.json", function(error, graph) {
   if (error) throw error;
-  data.push({'nodes':graph.nodes.slice(0), 'links':graph.links.slice(0)});
+  data.push(JSON.parse(JSON.stringify(graph)));
   clusters = 
   graph.links = graph.links.filter(d => sources.includes(d.source));
   plot_network(graph);
@@ -89,11 +103,21 @@ d3.json("data/terrorism_targets.json", function(error, graph) {
 })
 
 plot_network = function(graph){
-    
-  simulation = simulation.force("link", d3.forceLink().id(function(d)  { return d.id; }))
-                   .force("charge", d3.forceManyBody().strength(-150))
-                   .force("center", d3.forceCenter(width / 2, height / 2))
-                   .force("gravity", d3.forceManyBody(100))
+
+var simulation = d3.forceSimulation()    
+                 .force("link", d3.forceLink().id(function(d)  { return d.id; }))
+                 .force("charge", d3.forceManyBody().strength(-350).distanceMin(100))
+                 .force("center", d3.forceCenter(width / 2, height / 2))
+                 .force("gravity", d3.forceManyBody(100).distanceMax(100))
+                 .force("y", d3.forceY(100))
+                 .force("x", d3.forceX(-100))
+
+
+
+  var svg = d3.select("#svg").append('svg').style("width","1100px").style("height","700px");      
+  svg.call(tip);
+  plot_legend(svg);
+
 
   var link = svg.append("g")
       .attr("class", "links")
@@ -105,9 +129,9 @@ plot_network = function(graph){
   var nodes = svg.append("g")
       .attr("class", "nodes")
     .selectAll("circle")
-    .data(graph.nodes)
+    .data(graph.nodes.slice(0))
     .enter().append("circle")
-      .attr("r", 9)
+      .attr("r", function(d){ return sources.includes(d.id) ? big_rad : rad  })
       .attr("fill", function(d) { return color(d.group); })
       .attr('group',d => d.group)      
       .call(d3.drag()
@@ -115,15 +139,23 @@ plot_network = function(graph){
           .on("drag", dragged)
           .on("end", dragended));
 
-  nodes.append("text").classed('title',true)
-      .text(function(d) { return d.id; });
+    nodes.on('mouseover',function(d){
+        d3.selectAll('line')
+          .filter(c => c.target.id == d.id)
+          .classed('selected',true);
+          tip.show(d);
+      }).on("mouseout",function(d){
+        d3.selectAll('line').classed('selected',false);
+        tip.hide();
+      })
 
   simulation
       .nodes(graph.nodes)
       .on("tick", ticked);
 
   simulation.force("link")
-      .links(graph.links);
+      .links(graph.links.slice(0));
+
 
   function ticked() {
 
@@ -135,7 +167,7 @@ plot_network = function(graph){
 
     nodes
         .attr("cx", function(d) { return d.x; })
-        .attr("cy", function(d) { return d.y; });        
+        .attr("cy", function(d) { return d.y; });
 
   }
 
@@ -155,7 +187,7 @@ plot_network = function(graph){
     d.fx = null;
     d.fy = null;
   }
-
+  simulation.restart();
 }
 
 

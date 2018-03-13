@@ -33,5 +33,6 @@ sysinfo.txt
 *.apk
 *.unitypackage
 
-# Main data is too big right now. Will GFS later
-#terrorism.tsv
+# meta data from my mack
+.DS_Store
+.Rhistory

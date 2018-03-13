@@ -4,12 +4,9 @@
 Assets/Plugins/ZFBrowser/Plugins/m64/BrowserLib.app/Contents/Frameworks/Chromium[[:space:]]Embedded[[:space:]]Framework.framework/Chromium[[:space:]]Embedded[[:space:]]Framework filter=lfs diff=lfs merge=lfs -text
 # Large data for d3
 terrorism.tsv filter=lfs diff=lfs merge=lfs -text
+terrorism_small.tsv filter=lfs diff=lfs merge=lfs -text
 # Image files
 *.png filter=lfs diff=lfs merge=lfs -text
 *.jpg filter=lfs diff=lfs merge=lfs -text
 *.jpeg filter=lfs diff=lfs merge=lfs -text
 *.tga filter=lfs diff=lfs merge=lfs -text
-BrowserAssets/D3Vis/data/terrorism.tsv filter=lfs diff=lfs merge=lfs -text
-Assets/StreamingAssets/D3Vis/data/terrorism.tsv filter=lfs diff=lfs merge=lfs -text
-terrorism.* filter=lfs diff=lfs merge=lfs -text
-**/terrorism.tsv filter=lfs diff=lfs merge=lfs -text

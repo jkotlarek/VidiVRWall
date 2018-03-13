@@ -21,7 +21,7 @@ var format = d3.format(",");
 // Set tooltips
 var tip = d3.tip()
             .attr('class', 'd3-tip')
-            .offset([-10, 0])
+            .offset([220, -100])
             .html(function(d) {
               return "<strong>Country: </strong><span class='details'>" + d.properties.name + "<br></span>" + "<strong>" + d3.select("#field_select").node().value + ": </strong><span class='details'>" + format(d.population) +"</span>";
             })

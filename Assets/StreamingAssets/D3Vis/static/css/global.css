@@ -19,13 +19,13 @@ div.select select{
 /*
   Tooltips
 */
-
 /* Tooltip CSS */
 .d3-tip {
   line-height: 1.5;
-  font-weight: 400;
+  font-weight: 600;
   font-family:"avenir next", Arial, sans-serif;
   padding: 6px;
+  font-size: 20px;
   background: rgba(0, 0, 0, 0.6);
   color: #FFA500;
   border-radius: 1px;
@@ -36,7 +36,7 @@ div.select select{
 .d3-tip:after {      
   box-sizing: border-box;
   display: inline;
-  font-size: 8px;
+  font-size: 15px;
   width: 100%;
   line-height: 1.5;
   color: rgba(0, 0, 0, 0.6);
@@ -77,4 +77,12 @@ div.select select{
   margin: -4px 0 0 -1px;
   top: 50%;
   left: 100%;
+}
+
+/*    text{
+  pointer-events:none;
+}*/
+
+.details{
+  color:white;
 }

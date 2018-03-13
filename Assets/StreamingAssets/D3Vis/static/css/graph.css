@@ -14,3 +14,15 @@ text.legend {
 	font-size: 18px;
 	stroke-width: 1.4px;
 }
+
+circle.selected {
+	stroke: #3bbadf;
+    stroke-width: 50px;
+    stroke-opacity: 0.4;
+}
+
+line.selected {
+	stroke: #3bbadf;
+	stroke-opacity: 0.2;
+	stroke-width: 10px; 
+}
