@@ -67,7 +67,7 @@ var options = select
     })
 
 // On Load
-d3.tsv("../data/terrorism_small.tsv", function(error, cars) {
+d3.tsv("data/terrorism_small.tsv", function(error, cars) {
   data.push(cars); 
   cars.forEach(d => names.push(d[name_field]));
   draw_parallel(cars,dimensions); 

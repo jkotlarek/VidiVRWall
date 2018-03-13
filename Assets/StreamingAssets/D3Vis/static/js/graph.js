@@ -79,7 +79,7 @@ for (var i=0; i<regions.length; i++){
 
 
 
-d3.json("../data/terrorism_targets.json", function(error, graph) {
+d3.json("data/terrorism_targets.json", function(error, graph) {
   if (error) throw error;
   data.push({'nodes':graph.nodes.slice(0), 'links':graph.links.slice(0)});
   clusters = 

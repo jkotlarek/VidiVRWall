@@ -127,9 +127,8 @@ build_filters = function(){
 
 plot_lines = function(cols,types,timeType) {
 
-  d3.tsv("../data/terrorism_small.tsv", type, function(error, terrorism) {
+  d3.tsv("data/terrorism_small.tsv", type, function(error, terrorism) {
     if (error) throw error;
-
     
     var nested = nest_vars(terrorism,cols,types,timeType);
     var data = [];
