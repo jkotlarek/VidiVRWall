@@ -12,7 +12,7 @@ var options = select
   .append('option')
     .text(function (d) { return d; })
     .attr("selected", function(d){
-       return d === "population";
+       return d === "population_mil";
     })
 
 
@@ -50,7 +50,7 @@ svg.call(tip);
 plot_map = function(){
   queue()
       .defer(d3.json, "data/world_countries.json")
-      .defer(d3.tsv, "data/terrorism_small.tsv")
+      .defer(d3.csv, "data/terrorism_small.csv")
       .await(ready);
 }
 
@@ -103,4 +103,4 @@ function ready(error, geo, terrorism) {
       .attr("d", path);
 }
 
-plot_map('population');
+plot_map('population_mil');

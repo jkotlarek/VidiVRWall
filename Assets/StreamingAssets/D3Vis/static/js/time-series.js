@@ -1,11 +1,6 @@
 
-var svg = d3.select("svg"),
-    margin = {top: 20, right: 80, bottom: 30, left: 50},
-    width = svg.attr("width") - margin.left - margin.right,
-    height = svg.attr("height") - margin.top - margin.bottom,
-    g = svg.append("g").attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
-var dimensions = [];
+var dimensions=['nkill','population_mil'], types=['Avg','Avg'], timeType='iyear';
 
 var parseTime = d3.timeParse("%Y%m%d");
 var timeParser = function(time,timeType){
@@ -17,6 +12,10 @@ var timeParser = function(time,timeType){
     return "190001"+time;
 }
 
+var margin = {top: 20, right: 80, bottom: 30, left: 50},    
+    width = 1100 - margin.left - margin.right,
+    height = 600 - margin.top - margin.bottom;
+
 var x = d3.scaleTime().range([0, width]),
     y = d3.scaleLinear().range([height, 0]),
     z = d3.scaleOrdinal(d3.schemeCategory10);
@@ -25,93 +24,6 @@ var line = d3.line()
     .curve(d3.curveBasis)
     .x(function(d) { return x(d.date); })
     .y(function(d) { return y(d.temperature); });
-
-
-if (false){
-var nums = [1,2,3,4,5];
-var select = d3.select('body').append('select')
-    .attr("id","num_fields")
-    .on('change',function(){
-        build_filters();
-    });
-
-var options = select
-  .selectAll('option')
-  .data(nums).enter()
-  .append('option')
-    .text(function (d) { return d; })
-    .attr("selected", function(d){
-       return d === "population";
-    })
-
-build_filters = function(){
-  d3.selectAll('.field_select').remove();
-  d3.select('.btn-submit').remove();
-
-  d3.tsv("../data/terrorism_small.tsv",function(terrorism){
-    var types = ['Total','Count','Avg'];
-    var num = d3.select("#num_fields").node().value;
-    for (var j=0; j<num; j++){
-
-      var select = d3.select('body').append('select')
-          .classed("field_select",true)
-          .attr("id","select"+j)          
-
-      var options = select
-        .selectAll('option')
-        .data(terrorism.columns).enter()
-        .append('option')
-          .text(function (d) { return d; })
-          .attr("selected", function(d){
-             return d === "population";
-          })
-
-      var select = d3.select('body').append('select')
-          .classed("field_select",true)
-          .attr("id","type"+j)          
-
-      var options = select
-        .selectAll('option')
-        .data(types).enter()
-        .append('option')
-          .text(function (d) { return d; })
-          .attr("selected", function(d){
-             return d === 'Avg';
-          })
-    }
-
-    var timeTypes = ['iyear','imonth','iday'];
-    var select = d3.select('body').append('select')
-        .classed("field_select",true)
-        .attr("id","timeType")          
-
-    var options = select
-      .selectAll('option')
-      .data(timeTypes).enter()
-      .append('option')
-        .text(function (d) { return d; })
-        .attr("selected", function(d){
-           return d === 'iyear';
-        })
-
-    var btn = d3.select('body').append('button')
-        .classed("btn-submit",true)
-        .attr('type','button')
-        .attr("id","submit")
-        .text('Submit')
-        .on('click',function(){
-            var cols=[], types=[];
-            var num = d3.select("#num_fields").node().value;
-            for (var j=0; j<num; j++){
-              cols.push(  d3.select("#select"+j).node().value);
-              types.push( d3.select("#type"+j).node().value);
-            }
-            timeType = d3.select("#timeType").node().value;
-            plot_lines(cols,types,timeType);
-        });
-  });
-}
-}
 
 
 var timeTypes = ['iyear','imonth','iday'];
@@ -142,8 +54,7 @@ var options = select
         }else{
           dimensions.push(txt);
         }        
-        // svg.selectAll('g').remove()
-        // draw_parallel(data[0],dimensions);
+        d3.select('svg').remove();
         timeType = d3.select("#timeType").node().value;
         plot_lines(dimensions,Array(dimensions.length).fill('Avg'),timeType);
     })
@@ -162,12 +73,13 @@ var options = select
     })
 
 
-
-
-
 plot_lines = function(cols,types,timeType) {
+  
+  var svg = d3.select("#svg").append('svg').style("width",1100).style("height",600),    
+    g = svg.append("g").attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
-  d3.tsv("data/terrorism_small.tsv", type, function(error, terrorism) {
+
+  d3.csv("data/terrorism_small.csv", type, function(error, terrorism) {
     if (error) throw error;
     
     var nested = nest_vars(terrorism,cols,types,timeType);
@@ -231,14 +143,7 @@ plot_lines = function(cols,types,timeType) {
         .text(function(d) { return d.id; });
   });
 }
-function type(d, _, columns) {
-  d.date = parseTime(d.date);
-  for (var i = 1, n = columns.length, c; i < n; ++i) d[c = columns[i]] = +d[c];
-  return d;
-}
-
-var cols=['nkill','population'], types=['Avg','Total'], timeType='iyear';
-plot_lines(cols,types,timeType);
+plot_lines(dimensions,types,timeType);
 
 typeParser = {
   "Total": d3.sum,
@@ -256,3 +161,95 @@ nest_vars = function(data,vars,types,timeType) {
       return temp;
      }).entries(data);
 } 
+
+
+
+
+
+
+
+if (false){
+  var nums = [1,2,3,4,5];
+  var select = d3.select('body').append('select')
+      .attr("id","num_fields")
+      .on('change',function(){
+          build_filters();
+      });
+
+  var options = select
+    .selectAll('option')
+    .data(nums).enter()
+    .append('option')
+      .text(function (d) { return d; })
+      .attr("selected", function(d){
+         return d === "population_mil";
+      })
+
+  build_filters = function(){
+    d3.selectAll('.field_select').remove();
+    d3.select('.btn-submit').remove();
+
+    d3.csv("data/terrorism_small.csv",type,function(terrorism){
+      var types = ['Total','Count','Avg'];
+      var num = d3.select("#num_fields").node().value;
+      for (var j=0; j<num; j++){
+
+        var select = d3.select('body').append('select')
+            .classed("field_select",true)
+            .attr("id","select"+j)          
+
+        var options = select
+          .selectAll('option')
+          .data(terrorism.columns).enter()
+          .append('option')
+            .text(function (d) { return d; })
+            .attr("selected", function(d){
+               return d === "population_mil";
+            })
+
+        var select = d3.select('body').append('select')
+            .classed("field_select",true)
+            .attr("id","type"+j)          
+
+        var options = select
+          .selectAll('option')
+          .data(types).enter()
+          .append('option')
+            .text(function (d) { return d; })
+            .attr("selected", function(d){
+               return d === 'Avg';
+            })
+      }
+
+      var timeTypes = ['iyear','imonth','iday'];
+      var select = d3.select('body').append('select')
+          .classed("field_select",true)
+          .attr("id","timeType")          
+
+      var options = select
+        .selectAll('option')
+        .data(timeTypes).enter()
+        .append('option')
+          .text(function (d) { return d; })
+          .attr("selected", function(d){
+             return d === 'iyear';
+          })
+
+      var btn = d3.select('body').append('button')
+          .classed("btn-submit",true)
+          .attr('type','button')
+          .attr("id","submit")
+          .text('Submit')
+          .on('click',function(){
+              var cols=[], types=[];
+              var num = d3.select("#num_fields").node().value;
+              for (var j=0; j<num; j++){
+                cols.push(  d3.select("#select"+j).node().value);
+                types.push( d3.select("#type"+j).node().value);
+              }
+              timeType = d3.select("#timeType").node().value;
+              plot_lines(cols,types,timeType);
+          });
+    });
+  }
+}

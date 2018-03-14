@@ -112,8 +112,6 @@ var simulation = d3.forceSimulation()
                  .force("y", d3.forceY(100))
                  .force("x", d3.forceX(-100))
 
-
-
   var svg = d3.select("#svg").append('svg').style("width","1100px").style("height","700px");      
   svg.call(tip);
   plot_legend(svg);
@@ -133,11 +131,12 @@ var simulation = d3.forceSimulation()
     .enter().append("circle")
       .attr("r", function(d){ return sources.includes(d.id) ? big_rad : rad  })
       .attr("fill", function(d) { return color(d.group); })
-      .attr('group',d => d.group)      
+      .attr('group',d => d.group)  
+      .attr('id',d => d.id)          
       .call(d3.drag()
           .on("start", dragstarted)
           .on("drag", dragged)
-          .on("end", dragended));
+          .on("end", dragended));    
 
     nodes.on('mouseover',function(d){
         d3.selectAll('line')
@@ -149,6 +148,12 @@ var simulation = d3.forceSimulation()
         tip.hide();
       })
 
+      sources.forEach(function(d){
+        svg.append('text').text(d).classed('title',true);
+      })
+      var text = d3.selectAll('text.title');
+
+
   simulation
       .nodes(graph.nodes)
       .on("tick", ticked);
@@ -158,7 +163,7 @@ var simulation = d3.forceSimulation()
 
 
   function ticked() {
-
+    
     link
         .attr("x1", function(d) { return d.source.x; })
         .attr("y1", function(d) { return d.source.y; })
@@ -167,8 +172,7 @@ var simulation = d3.forceSimulation()
 
     nodes
         .attr("cx", function(d) { return d.x; })
-        .attr("cy", function(d) { return d.y; });
-
+        .attr("cy", function(d) { return d.y; })
   }
 
   function dragstarted(d) {

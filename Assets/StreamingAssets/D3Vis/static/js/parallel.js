@@ -1,5 +1,5 @@
 var data = [], names = [], name_field = 'country_txt';
-var dimensions = ['nperps','suicide','nkill','population'];
+var dimensions = ['nperps','suicide','nkill','population_mil'];
 
 var margin = {top: 30, right: 10, bottom: 10, left: 50},
     width = d3.select("svg").attr("width") - margin.left - margin.right,
@@ -67,7 +67,7 @@ var options = select
     })
 
 // On Load
-d3.tsv("data/terrorism_small.tsv", function(error, cars) {
+d3.csv("data/terrorism_small.csv", type, function(error, cars) {
   data.push(cars); 
   cars.forEach(d => names.push(d[name_field]));
   draw_parallel(cars,dimensions); 
@@ -82,11 +82,7 @@ draw_parallel = function(cars,dimensions) {
   cars.forEach(function(x){
     var temp = {'name':x[name_field]};
     dimensions.forEach(function(y){
-      if (y == 'population'){
-        temp[y] = +x[y]/10000000;
-      }else{
-        temp[y] = +x[y];
-      }
+      temp[y] = +x[y];      
     });
     df.push(temp);
   })
@@ -131,11 +127,7 @@ draw_parallel = function(cars,dimensions) {
     .append("text")
       .classed("title",true)
       .attr("y", -9)
-      .text(function(d) { 
-        if (d == 'population')
-          return 'population (10e-7)';
-        return d; 
-      });
+      .text(function(d) { return d; });
 
     // Add and store a brush for each axis.
     var brush = d3.brush().extent([[0, 0], [6, height]]).on("end", brushended);

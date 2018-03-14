@@ -13,7 +13,7 @@ function stackedbar(filename) {
         dashboardHeight = 200;
 
     // read in data
-    d3.tsv(filename, function(terrorism){
+    d3.csv(filename, function(terrorism){
 
     var data = d3.nest()
     .key(function(d) { return d.iyear; })
@@ -205,3 +205,4 @@ function stackedbar(filename) {
      
     });
 }
+stackedbar("data/terrorism_small.csv");
