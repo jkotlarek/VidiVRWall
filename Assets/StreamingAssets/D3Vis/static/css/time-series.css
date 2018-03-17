@@ -16,3 +16,14 @@
   stroke: #d6d8d9c2;
   stroke-width: 5px;
 }
+
+.field_select {
+	border-radius: 5px;
+    margin-top: 5px;
+}
+
+button {
+	border-radius: 5px;
+    margin-top: 5px;
+}
+

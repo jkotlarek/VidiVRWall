@@ -4,7 +4,7 @@ function stackedbar(filename) {
         width = 850 - margin.left - margin.right,
         height = 650 - margin.top - margin.bottom;
 
-    var canvas = d3.select("body")
+    var canvas = d3.select("#svg")
         .append("svg")
         .attr("width", width)
         .attr("height", height);
@@ -12,8 +12,20 @@ function stackedbar(filename) {
     var dashboardWidth = 250,
         dashboardHeight = 200;
 
+
+    var tip = d3.tip()
+        .attr('class', 'd3-tip')
+        .offset([100, -100])
+        .html(function(d) {
+          // return "<strong>Country: </strong><span class='details'>" + d.properties.name + "<br></span>" + "<strong>" + d3.select("#field_select").node().value + ": </strong><span class='details'>" + format(d.population) +"</span>";
+          return "<strong> Weapon </strong>: <span class='details'>" +d.weapon+"</span><br>"+
+                 "<strong> Year </strong>: <span class='details'>" +d.year+"</span><br>"+
+                 "<strong> # Kills </strong>: <span class='details'>" +d.nkill+"</span><br>";
+        })
+
+    canvas.call(tip);
     // read in data
-    d3.csv(filename, function(terrorism){
+    d3.csv(filename, type, function(terrorism){
 
     var data = d3.nest()
     .key(function(d) { return d.iyear; })
@@ -31,10 +43,6 @@ function stackedbar(filename) {
         x.value.forEach(function(w){
             temp[w.key] = w.value;
         })
-        // weapons.forEach(function(w){
-        //     if (temp[w] == undefined)
-        //         temp[w] = 0;
-        // })
         values.push(temp);
      })
      data = values;
@@ -42,11 +50,22 @@ function stackedbar(filename) {
 
     // get keys other than year
     var keys = [];
-    for(key in data[0]) {
-        if(key != "Year"){
-            keys.push(key);
-        }
-    }    
+    for (var row in data){
+        for (var key in data[row]) {
+            if(key != "Year"){
+                keys.push(key);
+            }
+        }    
+    }
+    keys = Array.from(new Set(keys));
+
+    data.forEach(function(d){
+        keys.forEach(function(key){
+            if (d[key]==undefined)
+                d[key] = 0;
+        })
+    })
+
     var stacks = d3.stack()
         .offset(d3.stackOffsetSilhouette)
         .keys(keys);
@@ -74,7 +93,7 @@ function stackedbar(filename) {
         })
     });
 
-    var xScale = d3.scaleLinear()
+    var xScale = d3.scaleLinear()        
         .domain([minX, maxX])
         .range([80, width-80]);
 
@@ -131,12 +150,6 @@ function stackedbar(filename) {
     var numRowScale = d3.scaleLinear()
         .domain([minX, maxX])
         .range([0, data.length]);
-
-    var tooltip = d3.select("body")
-                .append("div")
-                .attr("class", "tooltip")
-                .style("opacity", 0);
-
     
     canvas.selectAll("g")
         .data(layers)
@@ -157,6 +170,7 @@ function stackedbar(filename) {
 
     canvas.selectAll("path")
             .attr("opacity", 1)
+            .attr("weapon",function(d,i){return  keys[i]})
             .on("mousemove", function(d, i) {
                 var mouseX = d3.mouse(this)[0];
                 var invertedX = xScale.invert(mouseX);
@@ -165,13 +179,8 @@ function stackedbar(filename) {
                 var invertedY = yScale.invert(mouseY);
                 var currDashboardData;
 
-                tooltip.html("Stream name: " +keys[i]+
-                    "<br>Year: " +parseInt(invertedX)+
-                    "<br>Value: " +(yAxisScale.invert(mouseY)))  
-
-                    .style("left", (d3.event.pageX) + "px")
-                    .style("top", (d3.event.pageY - 28) + "px")
-                    .style("opacity", .9);           
+                var dat = {'weapon':keys[i],'year':parseInt(invertedX),'nkill':Math.round(yAxisScale.invert(mouseY)*1000)/1000}
+                tip.show(dat);          
                     
                 currDashboardData = d[parseInt(numRowScale(parseInt(invertedX)))].data;
                             
@@ -188,20 +197,57 @@ function stackedbar(filename) {
                 })                  
                 .on("mouseout", function(d) {
                     canvas.selectAll("path")
-                        .attr("opacity", 1);
-                    tooltip.style("opacity", 0);
+                        .attr("opacity", 1);  
+                    tip.hide();                  
                 });
 
-        
+    var leg = d3.select("#legend").style("height","480px")
+        leg.append("text").attr("class","h4").text("Weapons");
+    var ul = leg.append('ul').classed('legend',true);
+    for (var i = 0; i < keys.length; i++){
+        ul.append('li')
+          .append('text')
+          .text(keys[i])
+          .classed('legend',true)
+          .style("stroke","white")
+          .style("color",colorScale(keys[i]))
+          .on("mouseover",function(){
+             var d = this.innerHTML;
+             canvas.selectAll("path")
+                    .attr("opacity", function(e) { return ( d!=e.key ? 0.5 : 1); });
+          }).on('mouseout',function(){
+             canvas.selectAll("path").attr("opacity", 1); 
+          }); 
+    }
+      
+      
+
 
     canvas.append("g")
         .attr("class", "axis")
         .attr("transform", "translate(0," + (height-80) + ")")
-        .call(d3.axisBottom(xScale));
+        .call(d3.axisBottom(xScale).tickFormat(d3.format("d")));
     canvas.append("g")
         .attr("class", "axis")
         .attr("transform", "translate(80,0)")
         .call(d3.axisLeft(yAxisScale));
+
+    canvas.append("text")             
+      .attr("transform",
+            "translate(" + (width/2) + " ," + 
+                           (height - 20) + ")")
+      .style("text-anchor", "middle")
+      .classed("title",true)
+      .text("Date");
+
+    canvas.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("y", 20)
+      .attr("x",0 - (height / 2))
+      .attr("dy", "1em")
+      .style("text-anchor", "middle")
+      .classed("title",true)
+      .text("# of Kills");   
      
     });
 }

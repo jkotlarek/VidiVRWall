@@ -16,11 +16,11 @@ div.tooltip {
     pointer-events: none;
 }
 
-.axis {
-    stroke: #e9e9eadb;
-    stroke-width: 2px;
-    font-size: 18px;
-    text-shadow: -1px -1px white;
+.axis text {
+  font-size: 20px;
+  stroke: white;
+  font-family: 'Open Sans';
+  font-weight: 100;
 }
 
 path, line {
@@ -40,4 +40,33 @@ div.dashboard {
     border-radius: 8px;
     pointer-events: none;
 
+}
+
+text.legend {
+    color: white;
+    font-size: 14px;
+    font-family: 'Open Sans';
+}
+
+ul.legend {
+    margin-top: 10px;
+}
+
+div.legend {
+    padding: 10px;
+    margin-top: 50px;
+}
+
+.h4 {
+    padding-left: 30px;
+}
+
+text.title {
+  text-anchor: middle;
+  stroke: white;
+  font-size: 18px;
+  font-family: Roboto;
+  font-weight: 200;
+  text-shadow: none;
+  fill: #505050;
 }

@@ -1,5 +1,6 @@
 var data = [], names = [], name_field = 'country_txt';
 var dimensions = ['nperps','suicide','nkill','population_mil'];
+var filters = {};
 
 var margin = {top: 30, right: 10, bottom: 10, left: 50},
     width = d3.select("svg").attr("width") - margin.left - margin.right,
@@ -15,7 +16,9 @@ var idleTimeout, idleDelay = 350;
 var tip = 
   d3.tip()
     .attr('class', 'd3-tip')
-    .offset([-10, 0])
+    // .attr("x",width/2)
+    // .attr("y",height)
+    .offset([-20, 5])
     .html(function(d) {
       return "<strong>Country: </strong><span class='details'>" + d + "</span>" });
 
@@ -29,11 +32,11 @@ var svg = d3.select("svg")
     .attr("height", height + margin.top + margin.bottom)
   .append("g")
     .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+svg.call(tip);
 
 var select = d3.select('#select').append('select')
     .attr("id","field_select")
     .attr("multiple",true)    
-
 
 var options = select
   .selectAll('option')  
@@ -59,6 +62,7 @@ var options = select
 
   d3.select("#select")    
     .append("button")
+    .attr("id","Clear")
     .attr("type",'button')
     .text("Clear")
     .on("click",function(){
@@ -68,6 +72,18 @@ var options = select
 
 // On Load
 d3.csv("data/terrorism_small.csv", type, function(error, cars) {
+  var cars = 
+  d3.nest()
+    .key(d => d[name_field] )
+    .rollup(function(v) { 
+      var temp = {};
+      for (var i=0; i<num_fields.length; i++){
+        temp[num_fields[i]] =  d3.mean(v,c => c[num_fields[i]])
+      }
+      return temp;
+     }).entries(cars);
+
+
   data.push(cars); 
   cars.forEach(d => names.push(d[name_field]));
   draw_parallel(cars,dimensions); 
@@ -80,9 +96,9 @@ draw_parallel = function(cars,dimensions) {
 
   var df = [];
   cars.forEach(function(x){
-    var temp = {'name':x[name_field]};
+    var temp = {'name':x.key};
     dimensions.forEach(function(y){
-      temp[y] = +x[y];      
+      temp[y] = +x.value[y];      
     });
     df.push(temp);
   })
@@ -111,7 +127,9 @@ draw_parallel = function(cars,dimensions) {
       .data(df)
     .enter().append("path")
       .attr("d", path)
-      .attr("Name",d => d[name_field])
+      .attr("Name",d => d['name'])      
+      .on('mouseover',function(d){ tip.show( d, document.getElementById("Clear") ) })
+      .on('mouseout',tip.hide);
 
   // Add a group element for each dimension.
   var g = svg.selectAll(".dimension")
@@ -150,16 +168,17 @@ function path(d) {
 
 function brushended() {
 // Doesn't quite work yet
+      var d  = this.getAttribute("name");
       var s = d3.event.selection;      
       if (!s) {
-          // if (!idleTimeout) return idleTimeout = setTimeout(idled, idleDelay); 
-          chg_color(d,-1,-1);
+          delete filters[d];
+          chg_color();
 
-      } else {          
-          var d  = this.getAttribute("name"),
-              y1 = y[d].invert(s[1][1]), 
+      } else {                    
+          var y1 = y[d].invert(s[1][1]), 
               y2 = y[d].invert(s[0][1]);
-          chg_color(d,y1,y2);
+          filters[d] = [y1,y2];
+          chg_color();
       }
   }
 
@@ -168,23 +187,37 @@ function idled() {
       idleTimeout = null;
   }
 
-  function chg_color(d,y1,y2) {
-    var selected_names = [];
-    var idx=0;
-    data[0].filter(function(c){
-      if( +c[d] <= y2 && +c[d] >= y1 ){
-        selected_names.push(names[idx++]);
-        return true;
-      } 
-      idx++;
-      return false;
-    });
+function chg_color() {
+  var selected_names = [];
+  var idx=0;    
+  data[0].filter(function(c){
+    var bools = [];
+    for (b in filters){
+      bools.push(+c.value[b] <= filters[b][1] && +c.value[b] >= filters[b][0])
+    }
+    if (bools.some(x => x)){
+      selected_names.push(c.key);
+    }
+  });
 
-    d3.selectAll("g.foreground path")
-      .classed('active',false)
-      .filter(function(x){
-        return selected_names.includes(x['name']);
-      }).classed('active',true);
-      
-  }    
+  d3.selectAll("g.foreground path")
+    .classed('active',false)
+    .filter(function(x){
+      return selected_names.includes(x['name']);
+    }).classed('active',true);
+  
+  d3.selectAll('text.legend').remove();
+  d3.select('svg').append('text').attr('class','h4').text('Selected').attr('x',width-200).attr('y',75);
+  var sz = d3.scaleLinear().range([16,5]).domain([0,data[0].length]);
+  var dy = d3.scaleLinear().range([15,2]).domain([0,data[0].length])
+  for (idx=0; idx<selected_names.length; idx++){
+    d3.select('svg')
+      .append('text')
+      .classed('legend',true)
+      .text(selected_names[idx])
+      .attr('x',width-200)
+      .attr('y',function(){return 100 + dy(selected_names.length)*idx})
+      .style('font-size',function(){return sz(selected_names.length);})
+  }
+}    
 

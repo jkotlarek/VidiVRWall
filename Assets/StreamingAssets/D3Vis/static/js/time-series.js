@@ -18,23 +18,12 @@ var margin = {top: 20, right: 80, bottom: 30, left: 50},
 
 var x = d3.scaleTime().range([0, width]),
     y = d3.scaleLinear().range([height, 0]),
-    z = d3.scaleOrdinal(d3.schemeCategory10);
+    z = d3.scaleOrdinal(d3.schemeDark2);
 
 var line = d3.line()
     .curve(d3.curveBasis)
     .x(function(d) { return x(d.date); })
     .y(function(d) { return y(d.temperature); });
-
-
-var timeTypes = ['iyear','imonth','iday'];
-    var select = d3.select('body').append('select')
-        .classed("field_select",true)
-        .attr("id","timeType")   
-        .selectAll('option')
-        .data(timeTypes)
-        .enter().append('option')       
-        .text(d => d);
-
 
 var select = d3.select('#select').append('select')
     .attr("id","field_select")
@@ -63,21 +52,32 @@ var options = select
        return dimensions.includes(d);
     })
 
+var timeTypes = ['iyear','imonth','iday'];
+  var select = d3.select('#select').append('select')
+      .classed("field_select",true)
+      .attr("id","timeType")   
+      .style("height",'25px')
+      .style("width",'60px')
+      .style("display","none")
+      .selectAll('option')
+      .data(timeTypes)
+      .enter().append('option')       
+      .text(d => d);
+
   d3.select("#select")    
     .append("button")
     .attr("type",'button')
+    .style("width",'60px')
     .text("Clear")
     .on("click",function(){
       d3.selectAll('option').property('selected',false);
       dimensions = [];
-    })
-
+    })  
 
 plot_lines = function(cols,types,timeType) {
   
   var svg = d3.select("#svg").append('svg').style("width",1100).style("height",600),    
     g = svg.append("g").attr("transform", "translate(" + margin.left + "," + margin.top + ")");
-
 
   d3.csv("data/terrorism_small.csv", type, function(error, terrorism) {
     if (error) throw error;
@@ -95,7 +95,7 @@ plot_lines = function(cols,types,timeType) {
       return {
         id: id,
         values: data.map(function(d) {
-          return {date: parseTime(d.date), temperature: d[id]};
+          return {date: parseTime(d.date), temperature: d[id]/d3.mean(data,c => c[id])};
         })
       };
     });
@@ -141,6 +141,24 @@ plot_lines = function(cols,types,timeType) {
         .attr("dy", "0.35em")
         .style("font", "10px sans-serif")
         .text(function(d) { return d.id; });
+
+    // Plot legend
+    d3.selectAll('text.legend').remove();
+    d3.select('svg').append('text').attr('class','h4').text('Selected').attr('x',30).attr('y',48);
+    var sz = d3.scaleLinear().range([16,5]).domain([0,terrorism.length]);
+    var dy = d3.scaleLinear().range([15,2]).domain([0,terrorism.length]);
+    
+    for (var i=0; i < cols.length; i++){
+      svg.append('text')
+         .text(cols[i])
+         .attr('x',30)
+         .attr('y',73+dy(cols.length)*i)
+         .classed('legend',true)
+         .style('font-size',function(){return sz(cols.length)})
+         .style('stroke',function(){return z(cols[i])});
+    }
+
+
   });
 }
 plot_lines(dimensions,types,timeType);
@@ -159,97 +177,7 @@ nest_vars = function(data,vars,types,timeType) {
         temp[vars[i]] =  typeParser[types[i]](v, function(d) { return d[vars[i]]; })
       }
       return temp;
-     }).entries(data);
+     }).entries(data)
+     .sort(function(a,b) {return d3.ascending(a.key,b.key);});
 } 
 
-
-
-
-
-
-
-if (false){
-  var nums = [1,2,3,4,5];
-  var select = d3.select('body').append('select')
-      .attr("id","num_fields")
-      .on('change',function(){
-          build_filters();
-      });
-
-  var options = select
-    .selectAll('option')
-    .data(nums).enter()
-    .append('option')
-      .text(function (d) { return d; })
-      .attr("selected", function(d){
-         return d === "population_mil";
-      })
-
-  build_filters = function(){
-    d3.selectAll('.field_select').remove();
-    d3.select('.btn-submit').remove();
-
-    d3.csv("data/terrorism_small.csv",type,function(terrorism){
-      var types = ['Total','Count','Avg'];
-      var num = d3.select("#num_fields").node().value;
-      for (var j=0; j<num; j++){
-
-        var select = d3.select('body').append('select')
-            .classed("field_select",true)
-            .attr("id","select"+j)          
-
-        var options = select
-          .selectAll('option')
-          .data(terrorism.columns).enter()
-          .append('option')
-            .text(function (d) { return d; })
-            .attr("selected", function(d){
-               return d === "population_mil";
-            })
-
-        var select = d3.select('body').append('select')
-            .classed("field_select",true)
-            .attr("id","type"+j)          
-
-        var options = select
-          .selectAll('option')
-          .data(types).enter()
-          .append('option')
-            .text(function (d) { return d; })
-            .attr("selected", function(d){
-               return d === 'Avg';
-            })
-      }
-
-      var timeTypes = ['iyear','imonth','iday'];
-      var select = d3.select('body').append('select')
-          .classed("field_select",true)
-          .attr("id","timeType")          
-
-      var options = select
-        .selectAll('option')
-        .data(timeTypes).enter()
-        .append('option')
-          .text(function (d) { return d; })
-          .attr("selected", function(d){
-             return d === 'iyear';
-          })
-
-      var btn = d3.select('body').append('button')
-          .classed("btn-submit",true)
-          .attr('type','button')
-          .attr("id","submit")
-          .text('Submit')
-          .on('click',function(){
-              var cols=[], types=[];
-              var num = d3.select("#num_fields").node().value;
-              for (var j=0; j<num; j++){
-                cols.push(  d3.select("#select"+j).node().value);
-                types.push( d3.select("#type"+j).node().value);
-              }
-              timeType = d3.select("#timeType").node().value;
-              plot_lines(cols,types,timeType);
-          });
-    });
-  }
-}

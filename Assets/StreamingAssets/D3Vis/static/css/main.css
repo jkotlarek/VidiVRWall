@@ -21,6 +21,7 @@ div#main {
 
 body {
 	background-color: #000;	
+	padding: 10px;
 }
 
 div {
@@ -55,11 +56,13 @@ div.main {
 	width: 100%;
 }
 
-h4 {
-	font-family: Luminari, fantasy;	
-	color: white;
-	text-decoration: underline;
-	text-shadow: 0 4px 12px #ff8d00de;
+h4, .h4 {
+	font-family: Roboto;
+    font-weight: 300;
+    color: white;
+    fill: white;
+    font-style: oblique;
+    text-decoration: underline;
 }
 
 small.caption {

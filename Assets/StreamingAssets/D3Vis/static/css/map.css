@@ -4,3 +4,27 @@
   stroke-linejoin: round;
   }
 
+circle.points {
+  fill: #FFA500;
+  cursor: pointer;
+  opacity: 0.2;
+}
+
+circle.points:hover {
+  fill: #ffc900;
+  cursor: pointer;
+  opacity: 0.5;
+  stroke: #FFF;
+  stroke-width: 4
+}
+
+rect.legend {
+  fill: #FFA500;
+}
+
+text.legend {
+  fill: #000;
+  font-family: serif;
+  font-weight: 700;
+  font-style: normal;
+}
