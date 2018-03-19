@@ -1,8 +1,9 @@
 var data = [], names = [], name_field = 'country_txt';
 var dimensions = ['nperps','suicide','nkill','population_mil'];
 var filters = {};
+var selected_names = [];
 
-var margin = {top: 30, right: 10, bottom: 10, left: 50},
+var margin = {top: 30, right: 100, bottom: 10, left: 50},
     width = d3.select("svg").attr("width") - margin.left - margin.right,
     height = d3.select("svg").attr("height") - margin.top - margin.bottom;
 
@@ -20,7 +21,7 @@ var tip =
     // .attr("y",height)
     .offset([-20, 5])
     .html(function(d) {
-      return "<strong>Country: </strong><span class='details'>" + d + "</span>" });
+      return "<strong>Country: </strong><span class='details'>" + d.name + "</span>" });
 
 var line = d3.line(),
     axis = d3.axisLeft(),
@@ -31,6 +32,7 @@ var svg = d3.select("svg")
     .attr("width", width + margin.left + margin.right)
     .attr("height", height + margin.top + margin.bottom)
   .append("g")
+    .classed("parallel-coords",true)
     .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 svg.call(tip);
 
@@ -49,11 +51,13 @@ var options = select
         if (dimensions.includes(txt)){
           var i = dimensions.indexOf(txt);
           dimensions = dimensions.slice(0,i).concat(dimensions.slice(i+1,dimensions.length));
+          delete filters[txt];
         }else{
           dimensions.push(txt);
         }        
-        svg.selectAll('g').remove()
+        svg.selectAll('g').remove();             
         draw_parallel(data[0],dimensions);
+        chg_color();        
     })
     .text(function (d) { return d; })
     .property('selected',function(d){
@@ -67,7 +71,9 @@ var options = select
     .text("Clear")
     .on("click",function(){
       d3.selectAll('option').property('selected',false);
-      dimensions = [];
+      dimensions = []; filters = {};
+      svg.selectAll('g').remove();             
+      draw_parallel(data[0],dimensions);
     })
 
 // On Load
@@ -128,8 +134,14 @@ draw_parallel = function(cars,dimensions) {
     .enter().append("path")
       .attr("d", path)
       .attr("Name",d => d['name'])      
-      .on('mouseover',function(d){ tip.show( d, document.getElementById("Clear") ) })
-      .on('mouseout',tip.hide);
+      .on('mouseover',function(d){ 
+        tip.show( d, document.getElementById("Clear") ) 
+        d3.select(this).classed('active',true);
+      })
+      .on('mouseout',function(d){
+        tip.hide();
+        d3.select(this).classed('active',false);
+      });
 
   // Add a group element for each dimension.
   var g = svg.selectAll(".dimension")
@@ -138,25 +150,25 @@ draw_parallel = function(cars,dimensions) {
       .attr("class", "dimension")
       .attr("transform", function(d) { return "translate(" + x(d) + ")"; });
 
-  // Add an axis and title.
-  g.append("g")
-      .attr("class", "axis")
-      .each(function(d) { d3.select(this).call(axis.scale(y[d])); })
-    .append("text")
-      .classed("title",true)
-      .attr("y", -9)
-      .text(function(d) { return d; });
-
     // Add and store a brush for each axis.
-    var brush = d3.brush().extent([[0, 0], [6, height]]).on("end", brushended);
-            
+    var brush = d3.brushY().extent([[-10, -4], [10, height+10]]).on("end", brushended);
+
     g.append("g")
         .attr("transform","translate(-8,0)")
         .attr("class", "brush")
-        .call(brush)
         .attr("name",function(d){return d;})
-        //.each(function(d) { d3.select(this).call(y[d].brush = d3.brushY(y[d]).on("end", brushended)); })
+        .call(brush)
 
+     // Add an axis and title.
+    g.append("g")
+        .attr("class", "axis")
+        .each(function(d) { d3.select(this).call(axis.scale(y[d])); })
+        .style('transform','translate(-10px,0)')      
+      .append("text")
+        .classed("title",true)
+        .attr("y", -9)      
+        .text(function(d) { return d; });
+        
 
 }
 
@@ -167,7 +179,7 @@ function path(d) {
 
 
 function brushended() {
-// Doesn't quite work yet
+
       var d  = this.getAttribute("name");
       var s = d3.event.selection;      
       if (!s) {
@@ -175,8 +187,8 @@ function brushended() {
           chg_color();
 
       } else {                    
-          var y1 = y[d].invert(s[1][1]), 
-              y2 = y[d].invert(s[0][1]);
+          var y1 = y[d].invert(s[1]), 
+              y2 = y[d].invert(s[0]);
           filters[d] = [y1,y2];
           chg_color();
       }
@@ -188,7 +200,19 @@ function idled() {
   }
 
 function chg_color() {
-  var selected_names = [];
+  get_selected();
+
+  d3.selectAll("g.foreground path")
+    .classed('active',false)
+    .filter(function(x){
+      return selected_names.includes(x['name']);
+    }).classed('active',true);
+
+  draw_legend();
+}    
+
+function get_selected() {
+  selected_names = [];
   var idx=0;    
   data[0].filter(function(c){
     var bools = [];
@@ -199,25 +223,28 @@ function chg_color() {
       selected_names.push(c.key);
     }
   });
+}
 
-  d3.selectAll("g.foreground path")
-    .classed('active',false)
-    .filter(function(x){
-      return selected_names.includes(x['name']);
-    }).classed('active',true);
-  
+function draw_legend(){
+
+  var new_width = d3.select(".parallel-coords").node().getBoundingClientRect().width;   
+
+  d3.select('.h4').remove();
   d3.selectAll('text.legend').remove();
-  d3.select('svg').append('text').attr('class','h4').text('Selected').attr('x',width-200).attr('y',75);
+  d3.select('svg').append('text')
+    .attr('class','h4')
+    .text('Selected')
+    .attr('x',new_width).attr('y',75);
+
   var sz = d3.scaleLinear().range([16,5]).domain([0,data[0].length]);
-  var dy = d3.scaleLinear().range([15,2]).domain([0,data[0].length])
+  var dy = d3.scaleLinear().range([15,2]).domain([0,data[0].length])  
   for (idx=0; idx<selected_names.length; idx++){
     d3.select('svg')
-      .append('text')
-      .classed('legend',true)
+      .append('text').classed('legend',true)
       .text(selected_names[idx])
-      .attr('x',width-200)
+      .attr('x',new_width)
       .attr('y',function(){return 100 + dy(selected_names.length)*idx})
       .style('font-size',function(){return sz(selected_names.length);})
   }
-}    
+}
 

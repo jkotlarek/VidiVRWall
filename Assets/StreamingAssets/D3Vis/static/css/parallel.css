@@ -25,7 +25,7 @@ svg {
 .axis line,
 .axis path {
   fill: none;
-  stroke: #000;
+  stroke: #FFF;
   shape-rendering: crispEdges;
 }
 
@@ -49,6 +49,11 @@ text.title {
 rect.overlay {
   stroke: #e3e7eab5;
   fill: #919395b3;
+}
+
+rect.selection {
+  fill: #00ceff;
+  fill-opacity: 0.45;
 }
 
 path.active {
