@@ -67,14 +67,14 @@ public static class CSVReader
         foreach (string[] line in csv)
         {
             if (line == header) continue;
-            var d = new Event();
+            var e = new Event();
 
             for (int i = 0; i < header.Length; i++)
             {
-                d.values.Add(header[i], line[i + 1]); //i+1 because the data has an extra column that we're craftily ignoring hehe
+                e.values.Add(header[i], line[i == 0 ? i : i + 1]); //i+1 because the data has an extra column that we're craftily ignoring hehe
             }
-
-            data.Add(d);
+            
+            data.Add(e);
         }
 
         return data;

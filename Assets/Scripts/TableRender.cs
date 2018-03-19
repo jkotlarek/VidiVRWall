@@ -3,7 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class GlobeRender : MonoBehaviour {
+public class TableRender : MonoBehaviour {
 
     public Gradient gradient;
     public Material material;
@@ -14,7 +14,7 @@ public class GlobeRender : MonoBehaviour {
     List<GameObject> pointObjects;
 
     Transform mapWall;
-    Transform mapTable;
+    Transform mapGlobe;
 
     bool pointsChanged;
     bool animating;
@@ -28,10 +28,9 @@ public class GlobeRender : MonoBehaviour {
     int animIndex = 0;
 
     // Use this for initialization
-    void Start ()
-    {
+    void Start () {
         mapWall = GameObject.FindGameObjectWithTag("MapWall").transform;
-        mapTable = GameObject.FindGameObjectWithTag("MapTable").transform;
+        mapGlobe = GameObject.FindGameObjectWithTag("MapGlobe").transform;
         data = CSVReader.Read(filename);
         points = new List<Point>();
         pointObjects = new List<GameObject>();
@@ -39,11 +38,11 @@ public class GlobeRender : MonoBehaviour {
         animating = false;
         cleanupTrails = false;
 
-        
-        AddPoints(data, "country_txt", "count", "nkill", 0.004f, (e) => { return true; });
+
+        AddPoints(data, "country_txt", "nkill", "count", 0.4f, (e) => { return true; });
 
         animating = true;
-	}
+    }
 	
 	// Update is called once per frame
 	void Update () {
@@ -57,19 +56,10 @@ public class GlobeRender : MonoBehaviour {
 
                 obj.name = p.Aggregate;
                 obj.transform.SetParent(this.transform, false);
-                obj.transform.localScale = new Vector3(p.Size, p.Size, p.Height);
+                obj.transform.localScale = new Vector3(p.Size, p.Height, p.Size*2);
                 obj.GetComponent<MeshRenderer>().material.color = p.Color;
-                
-                var startPos = new Vector3
-                {
-                    x = p.Position.x / Mathf.PI * 0.4f - 0.01f,
-                    y = p.Position.y / Mathf.PI * 0.7f - 0.09f,
-                    z = 0f
-                };
-                startPos.Scale(mapWall.localScale);
-                startPos += mapWall.position;
-                
-                p.WallPosition = startPos;
+
+                obj.transform.localPosition = p.TablePosition;
 
                 pointObjects.Add(obj);
             }
@@ -84,14 +74,14 @@ public class GlobeRender : MonoBehaviour {
                 if (animIndex == i + 1)
                 {
                     pointObjects[i].GetComponent<TrailRenderer>().enabled = true;
+                    pointObjects[i].GetComponent<TrailRenderer>().Clear();
                 }
 
-                pointObjects[i].transform.position = Vector3.Lerp(points[i].WallPosition, transform.TransformPoint(points[i].GlobePosition), (animIndex-i)/(float)animFrames);
-                pointObjects[i].transform.LookAt(transform);
+                pointObjects[i].transform.localPosition = Vector3.Lerp(points[i].TablePosition+Vector3.up, points[i].TablePosition, (animIndex - i) / (float)animFrames);
             }
 
             animIndex++;
-            if(animIndex > pointObjects.Count + animFrames)
+            if (animIndex > pointObjects.Count + animFrames)
             {
                 animating = false;
                 cleanupTrails = true;
@@ -101,7 +91,7 @@ public class GlobeRender : MonoBehaviour {
         if (!animating && cleanupTrails)
         {
             animIndex++;
-            
+
             if (animIndex >= DataElementPrefab.GetComponent<TrailRenderer>().time * 100)
             {
                 foreach (GameObject p in pointObjects)
@@ -112,7 +102,7 @@ public class GlobeRender : MonoBehaviour {
                 cleanupTrails = false;
             }
         }
-	}
+    }
 
     public void AddPoints(List<Event> d, string aggregate, string heightColumn, string colorColumn, float height, Func<Event, bool> filter, bool append = false)
     {
@@ -127,7 +117,7 @@ public class GlobeRender : MonoBehaviour {
                 if (float.Parse(e.values["latitude"]) == 0 && float.Parse(e.values["longitude"]) == 0) continue;
 
                 int i = points.FindIndex(p => p.Aggregate == e.values[aggregate]);
-                if (i < 0) 
+                if (i < 0)
                 {
                     //new point
                     points.Add(new Point
@@ -136,7 +126,7 @@ public class GlobeRender : MonoBehaviour {
                         Aggregate = e.values[aggregate],
                         Position = new Vector2(float.Parse(e.values["longitude"]), float.Parse(e.values["latitude"])),
                         Color = gradient.Evaluate(0f),
-                        Size = 0.00025f,
+                        Size = 0.04f,
                         Height = heightColumn == "count" ? 1 : float.Parse(e.values[heightColumn]),
                         TColor = colorColumn == "count" ? 1 : float.Parse(e.values[colorColumn]),
                         TAnim = 0f,
@@ -159,12 +149,21 @@ public class GlobeRender : MonoBehaviour {
         {
             p.Position /= p.EventID.Count;
             p.Position *= rad;
+            /*
             p.GlobePosition = new Vector3
             {
                 x = -Mathf.Sin(p.Position.x) * Mathf.Cos(p.Position.y) * 0.01f,
                 y = -Mathf.Cos(p.Position.x) * Mathf.Cos(p.Position.y) * 0.01f,
                 z = Mathf.Sin(p.Position.y) * 0.01f
             };
+            */
+            p.TablePosition = new Vector3
+            {
+                x = -p.Position.x / Mathf.PI * 5,
+                y = 0.0f,
+                z = -p.Position.y / Mathf.PI * 10
+            };
+
             maxHeight = p.Height > maxHeight ? p.Height : maxHeight;
             maxTColor = p.TColor > maxTColor ? p.TColor : maxTColor;
         }
@@ -172,33 +171,16 @@ public class GlobeRender : MonoBehaviour {
         foreach (Point p in points)
         {
             p.Height = p.Height * height / maxHeight;
-            if (p.Height < 0.00005f) p.Height = 0.00005f;
+            if (p.Height < 0.005f) p.Height = 0.005f;
             p.TColor /= maxTColor;
             p.Color = gradient.Evaluate(p.TColor);
         }
         pointsChanged = true;
     }
-        
+
     public void ClearPoints()
     {
         points.Clear();
         pointsChanged = true;
     }
-    
-    
-}
-
-public class Point
-{
-    public List<string> EventID { get; set; }
-    public string Aggregate { get; set; }
-    public Vector2 Position { get; set; }
-    public Vector3 GlobePosition { get; set; }
-    public Vector3 WallPosition { get; set; }
-    public Vector3 TablePosition { get; set; }
-    public Color Color { get; set; }
-    public float Size { get; set; }
-    public float Height { get; set; }
-    public float TColor { get; set; }
-    public float TAnim { get; set; }
 }

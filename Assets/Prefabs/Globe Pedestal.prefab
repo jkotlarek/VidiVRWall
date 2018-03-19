@@ -102,6 +102,7 @@ GameObject:
   - component: {fileID: 4708426593689036}
   - component: {fileID: 33268570541233920}
   - component: {fileID: 23743843376938266}
+  - component: {fileID: 114063145170402648}
   m_Layer: 0
   m_Name: Globe
   m_TagString: Untagged
@@ -159,8 +160,8 @@ Transform:
   m_PrefabInternal: {fileID: 100100000}
   m_GameObject: {fileID: 1971171270201496}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalPosition: {x: 1.032, y: 0, z: 0}
+  m_LocalScale: {x: 0.75, y: 0.75, z: 0.75}
   m_Children:
   - {fileID: 4111986260488462}
   - {fileID: 4708426593689036}
@@ -385,3 +386,14 @@ MeshFilter:
   m_PrefabInternal: {fileID: 100100000}
   m_GameObject: {fileID: 1164475636253352}
   m_Mesh: {fileID: 10206, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &114063145170402648
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_PrefabParentObject: {fileID: 0}
+  m_PrefabInternal: {fileID: 100100000}
+  m_GameObject: {fileID: 1774993713444814}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7bcc601b6400f4d47a1a2bf81b04a85b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
