@@ -8,6 +8,7 @@ public class TableRender : MonoBehaviour {
     public Gradient gradient;
     public Material material;
     public GameObject DataElementPrefab;
+    public bool animating;
 
     List<Event> data;
     List<Point> points;
@@ -17,7 +18,6 @@ public class TableRender : MonoBehaviour {
     Transform mapGlobe;
 
     bool pointsChanged;
-    bool animating;
     bool cleanupTrails;
     string filename = "/D3Vis/data/terrorism_small.tsv";
     //string filename = "/D3Vis/data/terrorism.tsv";
@@ -39,9 +39,9 @@ public class TableRender : MonoBehaviour {
         cleanupTrails = false;
 
 
-        AddPoints(data, "country_txt", "nkill", "count", 0.4f, (e) => { return true; });
+        //AddPoints("country_txt", "nkill", "count", 0.4f, (e) => { return true; });
 
-        animating = true;
+        //animating = true;
     }
 	
 	// Update is called once per frame
@@ -104,13 +104,13 @@ public class TableRender : MonoBehaviour {
         }
     }
 
-    public void AddPoints(List<Event> d, string aggregate, string heightColumn, string colorColumn, float height, Func<Event, bool> filter, bool append = false)
+    public void AddPoints(string aggregate, string heightColumn, string colorColumn, float height, Func<Event, bool> filter, bool append = false)
     {
         if (!append)
         {
             points.Clear();
         }
-        foreach (Event e in d)
+        foreach (Event e in data)
         {
             if (filter(e))
             {
